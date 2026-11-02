@@ -61,3 +61,11 @@ Ao continuar, leia também LEIA-ME-PRIMEIRO.txt e mantenha-o atualizado na mesma
 7. Validação visual da interface continua pendente após recusa anterior do navegador; sintaxe JavaScript pode ser verificada sem contornar essa recusa.
 
 Impedimento de qualidade observado: Qwen0,5B repete exemplos e gera ações malformadas mesmo após instrução system e ajustes do histórico. O executor recusa essas ações; não relaxar aprovação/validação para mascarar o problema. Próxima evolução exige avaliar um checkpoint de código mais capaz em recursos suficientes, preservar a comparação numérica e medir tarefas reais. O seletor atual não troca checkpoints pelo navegador.
+
+## Continuidade após troca parcial
+
+- Usar seletor na aplicação iniciada por run-coder.ps1. Modelos ausentes são preparação, não inferência disponível. A troca exige terminar agentes/chats e é operação do administrador local.
+- Para distribuir modelos maiores, usar plan-model --model-profile coder-32b --parts N --root PASTA; entregar só assignment-i.json ao participante i e configuração de worker sem credenciais de usuários/coordenador. Definir exatamente os N endpoints/certificados/identidades na rede privada. Seguir MODELOS.md.
+- O impedimento “preparação exige modelo inteiro em RAM” foi removido no novo fluxo. O comando prepare legado não deve ser utilizado para grandes checkpoints. Continuam pendentes recursos físicos agregados para efetivamente executar 32B/72B e comparação numérica em hardware real.
+- Ampliar validação de troca em múltiplos computadores, queda durante commit, recuperação de rede e persistência. Hashes locais/HTTPS não provam inferência nem fornecem privacidade contra peers hostis.
+- Implementar quantização/precisão reduzida, teste GPU real e contexto/KV ajustável por orçamento; avaliar modelos maiores em tarefas representativas. Agente continua experimental e não há equivalência de qualidade ao Codex demonstrada.

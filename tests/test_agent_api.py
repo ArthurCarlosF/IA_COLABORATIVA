@@ -15,7 +15,7 @@ def test_model_catalog_and_message_validation(api):
     client,app,h=api
     assert client.get('/api/models').status_code==401
     catalog=client.get('/api/models',headers=h).json()
-    assert len(catalog['models'])==1 and not catalog['quality_equivalence_verified']
+    assert sum(m['available'] for m in catalog['models'])==1 and not catalog['quality_equivalence_verified']
     assert client.post('/api/chat',headers=h,json={'prompt':'hello','model':'absent'}).status_code==409
     assert client.post('/api/agent/runs',headers=h,json={'task':'hello','model':'absent'}).status_code==409
     for body in [[],None,1,'text']:

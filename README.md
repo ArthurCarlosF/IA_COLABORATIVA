@@ -137,8 +137,16 @@ Falhas transitórias de transporte têm uma repetição limitada. O worker devol
 
 ## Agente de projeto e escolha de modelo
 
-A caixa de mensagem tem os modos Chat e Agente de projeto e mostra o checkpoint realmente carregado. O backend rejeita um identificador de modelo ausente; esta versão executa um checkpoint por cluster. Nenhum modelo gigante é anunciado como instalado. O agente encadeia inferência distribuída e ferramentas de arquivos/busca/diff/verificação, com histórico privado persistente e cancelamento. Limita-se a dez etapas; ao reiniciar, tarefas em andamento ficam interrompidas, sem repetir comandos automaticamente.
+A caixa de mensagem tem os modos Chat e Agente de projeto. O seletor oferece perfis para preparar e trocar na rede; somente o checkpoint ativo é usado na inferência, e identificadores ausentes são recusados. Há um checkpoint por cluster; modelos grandes disponíveis para planejamento não são anunciados como já executados. O agente encadeia inferência distribuída e ferramentas de arquivos/busca/diff/verificação, com histórico privado persistente e cancelamento. Limita-se a dez etapas; ao reiniciar, tarefas em andamento ficam interrompidas, sem repetir comandos automaticamente.
 
 Comandos no computador do solicitante são opcionais: `run-coder.ps1 -AllowHostCommands`. Cada proposta precisa de aprovação local individual, vinculada aos argumentos e revisões do projeto. Comandos executam com os direitos do usuário; não são isolados. Sem essa opção, o agente trabalha com arquivos e verificadores ou unittest isolado quando Docker está disponível. A interface não oferece controle geral de navegador/computador, nem demonstra qualidade equivalente ao Codex. Histórico do agente não é memória ilimitada: contexto excedido é recusado explicitamente.
 
 Avaliação real do agente nesta etapa: arquivo criado e sintaxe válida, porém tarefa não concluída dentro de 420 segundos por respostas de ferramentas inconsistentes do modelo. O modo é experimental. Leia TEST_RESULTS.md: testes do executor aprovados não significam autonomia ou qualidade comparável ao Codex. Docker local falhou por timeout e deve permanecer desabilitado quando o probe não executar.
+
+## Troca real e pesos somente por participante
+
+O seletor inicia preparação/troca coordenada entre workers, com checagem de recursos, download HTTP parcial por tensor e recuperação diante de falha. Cada worker recebe somente seu assignment; o coordenador guarda metadados e tokenizer. Nenhuma máquina precisa carregar o checkpoint inteiro no novo fluxo. Consulte [MODELOS.md](MODELOS.md) para modelos, limites, configuração física e comandos.
+
+Perfis: Qwen2.5-Coder 0,5B/1,5B/32B e Qwen2.5 geral 0,5B/72B, com revisão fixa. 32B e 72B exigem recursos agregados suficientes; ainda não foram executados. Troca real para outro checkpoint de 0,5B e geração distribuída foram verificadas. O plano real de 32B gerou 32 assignments, cerca de 122 GiB de pesos FP32 previstos, sem baixar arquivos de pesos. O pedido de ativação de 32B nos dois workers atuais foi recusado antes de qualquer nova partição.
+
+Em instalação nova, run-coder.ps1 usa plan-model e os workers baixam suas próprias partes. prepare continua disponível como diagnóstico legado que carrega o modelo completo; não usar esse comando para checkpoints gigantes.

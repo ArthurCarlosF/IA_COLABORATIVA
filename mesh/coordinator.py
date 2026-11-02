@@ -29,6 +29,12 @@ class Chat(BaseModel):
     system:str=Field(default="",max_length=12000)
 
 def create_coordinator(root,secret,user_token,allowed,db_path,verify=True,accounts=None,worker_owners=None,daily_tokens=20000,credit_timezone='America/Sao_Paulo',peer_network=None,coordinator_url=None,workspace_root='runtime/workspaces',sandbox_image=None,allow_host_commands=False):
+    catalog=Path(db_path).parent/'model-catalog';catalog.mkdir(parents=True,exist_ok=True)
+    selection=catalog/'current.json'
+    if selection.exists():
+        saved=Path(json.loads(selection.read_text())['root']).resolve()
+        if not saved.is_relative_to(catalog.resolve()):raise ValueError('Invalid saved model metadata')
+        root=saved
     root=Path(root)
     manifest=json.loads((root/'manifest.json').read_text())
     tokenizer=AutoTokenizer.from_pretrained(root/'tokenizer',local_files_only=True)
@@ -54,17 +60,20 @@ def create_coordinator(root,secret,user_token,allowed,db_path,verify=True,accoun
     wallet=Wallet(ledger,daily_tokens,credit_timezone)
     wallet.recover()
     metrics=dict(requests=0,failures=0,tokens=0,last_seconds=0,tokens_per_second=0,network_retries=0)
-    fingerprints={s['index']:checkpoint_hash(root/f"part-{s['index']}"/'weights.pt') for s in manifest['parts']}
+    from .partition_store import digest
+    fingerprints={s['index']:(digest(manifest['bundles'][s['index']]) if manifest.get('format')=='range-f32-v1' else checkpoint_hash(root/f"part-{s['index']}"/'weights.pt')) for s in manifest['parts']}
     client=httpx.AsyncClient(timeout=20,verify=verify,trust_env=False,limits=httpx.Limits(keepalive_expiry=1))
 
     identity=json.loads(Path(peer_network['identity_files']['coordinator']).read_text()) if peer_network else None
     gossip=None
 
     agent=None
+    model_control=None
     @asynccontextmanager
     async def lifespan(app):
         if gossip:gossip.start()
         yield
+        if model_control:await model_control.close()
         if agent:await agent.close()
         if gossip:gossip.close()
         await client.aclose()
@@ -93,7 +102,7 @@ def create_coordinator(root,secret,user_token,allowed,db_path,verify=True,accoun
         body=encode(message)
         for attempt in range(2):
             try:
-                response=await client.post(node['url']+path,content=body,headers=signed_headers(secret,body,path,identity))
+                response=await client.post(node['url']+path,content=body,headers=signed_headers(secret,body,path,identity),timeout=600 if path in ('/model/commit','/model/rollback') else 20)
                 response.raise_for_status()
                 result=response.json()
                 if peer_network and path=='/step':
@@ -153,11 +162,6 @@ def create_coordinator(root,secret,user_token,allowed,db_path,verify=True,accoun
         user=auth(request)
         rows=[dict(id=k,url=n['url'],spec=n['spec'],resources=n['resources'],online=time.monotonic()-n['seen']<8) for k,n in nodes.items()]
         return dict(model=manifest['model'],revision=manifest['revision'],nodes=rows,metrics=metrics,busy=bool(scheduler.active),scheduler=scheduler.status(),required_parts=len(manifest['parts']),assignments=assignments,ledger_valid=ledger.verify(),usage=wallet.snapshot(user),context_limit=context_limit,output_limit=output_limit)
-
-    @app.get('/api/models')
-    async def models(request:Request):
-        auth(request)
-        return dict(active=manifest['model'],models=[dict(id=manifest['model'],revision=manifest['revision'],available=True,parts=len(manifest['parts']),context=context_limit,max_output=output_limit,agent_supported=context_limit>=2048)],switching='one-checkpoint-per-cluster',quality_equivalence_verified=False)
 
     @app.get('/api/usage')
     async def usage(request:Request):
@@ -243,6 +247,7 @@ def create_coordinator(root,secret,user_token,allowed,db_path,verify=True,accoun
             raise HTTPException(422,'Prompt ou limite de tokens inválido')
         sid=uuid.uuid4().hex
         if query.model is not None and query.model!=manifest['model']:raise HTTPException(409,'Modelo não está carregado neste cluster')
+        if model_control and model_control.busy:raise HTTPException(503,'Troca de modelo em andamento')
         try:scheduler.admit(user,sid)
         except CapacityError as exc:raise HTTPException(429,str(exc))
         pipeline=sorted([dict(n) for n in nodes.values() if time.monotonic()-n['seen']<8],key=lambda n:n['spec']['index'])
@@ -301,7 +306,7 @@ def create_coordinator(root,secret,user_token,allowed,db_path,verify=True,accoun
                             if await request.is_disconnected():raise asyncio.CancelledError()
                             value=pack(torch.tensor([chunk],dtype=torch.long))
                             for node in pipeline:
-                                reply=await rpc(node,'/step',dict(session=sid,position=position,tensor=value))
+                                reply=await rpc(node,'/step',dict(session=sid,position=position,tensor=value,model_fingerprint=fingerprints[node['spec']['index']]))
                                 expected=position+len(chunk)
                                 if reply['position']!=expected or reply['units']!=len(chunk)*(node['spec']['end']-node['spec']['start']):
                                     raise ValueError('Resposta inconsistente do worker')
@@ -390,6 +395,7 @@ def create_coordinator(root,secret,user_token,allowed,db_path,verify=True,accoun
     @app.post('/api/agent/runs')
     async def agent_start(request:Request):
         user=auth(request);data=await bounded_json(request,30000)
+        if model_control and model_control.busy:raise HTTPException(503,'Troca de modelo em andamento')
         if set(data)-{'task','model'} or not isinstance(data.get('task'),str):raise HTTPException(422,'Informe task e modelo disponível')
         if data.get('model',manifest['model'])!=manifest['model']:raise HTTPException(409,'Modelo não carregado')
         try:
@@ -417,4 +423,20 @@ def create_coordinator(root,secret,user_token,allowed,db_path,verify=True,accoun
         except KeyError:raise HTTPException(404,'Tarefa não encontrada')
         except PermissionError as exc:raise HTTPException(403,str(exc))
         except ValueError as exc:raise HTTPException(409,str(exc))
+    def current_model():return dict(root=root,manifest=manifest,fingerprints=dict(fingerprints))
+    def apply_model(new_root):
+        nonlocal root,manifest,tokenizer,model_config,context_limit,output_limit,assignments,fingerprints
+        new_root=Path(new_root);new_manifest=json.loads((new_root/'manifest.json').read_text())
+        if len(new_manifest['parts'])!=len(allowed):raise ValueError('Worker count changed')
+        new_tokenizer=AutoTokenizer.from_pretrained(new_root/'tokenizer',local_files_only=True)
+        new_config=json.loads((new_root/'config.json').read_text())
+        new_fingerprints={part['index']:(digest(new_manifest['bundles'][part['index']]) if new_manifest.get('format')=='range-f32-v1' else checkpoint_hash(new_root/f"part-{part['index']}"/'weights.pt')) for part in new_manifest['parts']}
+        root=new_root;manifest=new_manifest;tokenizer=new_tokenizer;model_config=new_config
+        if gossip:gossip.directory.capability.update(model=manifest['model'],revision=manifest['revision'])
+        fingerprints=new_fingerprints;assignments={key:manifest['parts'][i] for i,key in enumerate(allowed)}
+        context_limit=min(4096,model_config.get('max_position_embeddings',4096)) if model_config.get('model_type')=='qwen2' else 512
+        output_limit=512 if model_config.get('model_type')=='qwen2' else 128
+    from .model_control import ModelControl
+    model_control=ModelControl(app,auth,allowed,nodes,rpc,current_model,apply_model,catalog,lambda:not scheduler.active and not agent.active,lambda:(context_limit,output_limit))
+    app.state.model_control=model_control
     return app

@@ -113,13 +113,17 @@ class QwenShard(torch.nn.Module):
         count=self.spec['end']-self.spec['start']
         self.kv_bytes_per_token=2*count*self.config.num_key_value_heads*(self.config.hidden_size//self.config.num_attention_heads)*4
         # Cache local usa índices contíguos; posições RoPE continuam globais à sequência.
-        self.blocks=torch.nn.ModuleList([Qwen2DecoderLayer(self.config,layer_idx=i) for i in range(count)])
-        if self.spec['first']:
-            self.embed=torch.nn.Embedding(self.config.vocab_size,self.config.hidden_size)
-        if self.spec['last']:
-            self.norm=Qwen2RMSNorm(self.config.hidden_size,eps=self.config.rms_norm_eps)
-            self.head=torch.nn.Linear(self.config.hidden_size,self.config.vocab_size,bias=False)
-        original=torch.load(directory/'weights.pt',map_location='cpu',weights_only=True,mmap=True)
+        with torch.device('meta'):
+            self.blocks=torch.nn.ModuleList([Qwen2DecoderLayer(self.config,layer_idx=i) for i in range(count)])
+            if self.spec['first']:
+                self.embed=torch.nn.Embedding(self.config.vocab_size,self.config.hidden_size)
+            if self.spec['last']:
+                self.norm=Qwen2RMSNorm(self.config.hidden_size,eps=self.config.rms_norm_eps)
+                self.head=torch.nn.Linear(self.config.hidden_size,self.config.vocab_size,bias=False)
+        if (directory/'weights.json').exists():
+            from .partition_store import load_mapped
+            original=load_mapped(directory)
+        else:original=torch.load(directory/'weights.pt',map_location='cpu',weights_only=True,mmap=True)
         renamed={}
         for name,value in original.items():
             if name.startswith('model.layers.'):
@@ -128,7 +132,9 @@ class QwenShard(torch.nn.Module):
             else:
                 key=name.replace('model.embed_tokens.','embed.').replace('model.norm.','norm.').replace('lm_head.','head.')
             renamed[key]=value
-        self.load_state_dict(renamed,strict=True)
+        self.load_state_dict(renamed,strict=True,assign=True)
+        from transformers.models.qwen2.modeling_qwen2 import Qwen2RotaryEmbedding
+        for block in self.blocks:block.self_attn.rotary_emb=Qwen2RotaryEmbedding(self.config.hidden_size//self.config.num_attention_heads,max_position_embeddings=self.config.max_position_embeddings,base=self.config.rope_theta,device=self.device)
         self.to(self.device).eval()
 
     @torch.inference_mode()

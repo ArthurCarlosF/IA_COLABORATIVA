@@ -83,7 +83,10 @@ def main():
             log=open(directory/(label+'.log'),'a',encoding='utf8');logs.append(log)
             role='coordinator' if index==0 else 'worker'
             cmd=[sys.executable,'-m','mesh',role,'--root',str(model_root),'--config',str(active_cfg),'--host',addresses[index][0],'--port',str(addresses[index][1]),'--ca',str(cert_path)]
-            if index:cmd+=['--id',label,'--part',str(index-1),'--cert',str(cert_path),'--key',str(key_path)]
+            if index:
+                cmd+=['--id',label,'--part',str(index-1),'--cert',str(cert_path),'--key',str(key_path)]
+                assignment=model_root/f'assignment-{index-1}.json'
+                if assignment.exists():cmd+=['--assignment',str(assignment)]
             env=dict(os.environ,PYTHONPATH=str(ROOT),HF_HOME=str(ROOT/'data/hf'),MESH_THREADS='1',PYTHONUTF8='1')
             children.append(subprocess.Popen(cmd,cwd=workdir,env=env,stdout=log,stderr=log,creationflags=subprocess.CREATE_NO_WINDOW if os.name=='nt' else 0))
         print('Iniciando perfil persistente; sem cópia de pesos ou modelo de referência...',flush=True)

@@ -1,30 +1,47 @@
-# Modelos, capacidade e critérios de qualidade
+# Modelos por partição e troca real
 
-## O que realmente executa hoje
+O objetivo é executar um único checkpoint maior que a capacidade individual dos participantes. Cada máquina mantém somente seus pesos e KV cache. O coordenador guarda configurações, tokenizer, nomes/formatos/intervalos dos tensores e atribuições, não precisa guardar todos os pesos.
 
-O perfil run-coder usa Qwen2.5-Coder-0.5B-Instruct, revisão fixa ea3f2471cf1b1f0db85067f1ef93848e38e88c25: 24 camadas divididas em dois workers. É um modelo de validação, não equivalente a um assistente de programação de ponta. As ativações atravessam a rede e cada worker mantém seu KV cache. Há também tiny-gpt2 para regressões de transporte/números, sem finalidade de programação útil.
+## Seleção na interface
 
-A interface mostra a identificação real obtida em /api/models. /api/chat e /api/agent/runs rejeitam modelo diferente do checkpoint ativo. Atualmente existe um checkpoint ativo por cluster; a seleção não faz troca automática nem download. Não listamos checkpoints ausentes como disponíveis. Contexto Qwen limitado nesta implementação a 4096 tokens incluindo saída, com até 512 tokens por resposta/ação. O contexto GPT-2 continua limitado a 512/128. Ultrapassar limites gera erro explícito.
+O seletor abaixo da mensagem oferece perfis com revisão fixa: Qwen2.5-Coder 0,5B, 1,5B e 32B, Qwen2.5 geral 0,5B e 72B. Os modelos ausentes aparecem como “preparar na rede”, sem fingir que estão carregados. Somente o operador local pode alterar o checkpoint global. Nesta versão a rede executa um checkpoint por vez; não há pools de modelos simultâneos.
 
-## Por que adicionar computadores não garante qualidade
+Escolher um perfil inicia uma tarefa de preparação. A rede exige que todas as sessões e agentes estejam encerrados, consulta recursos dos workers e calcula partições contíguas conforme o orçamento disponível. RAM do mesmo host e VRAM do mesmo dispositivo não devem ser contadas novamente por processo. Estimativas reservam margem para execução; não são garantia contra mudanças de uso dos outros programas ou falhas do hardware.
 
-Dividir as camadas preserva a computação do checkpoint e permite distribuir pesos e KV entre participantes. Não acrescenta parâmetros, treinamento nem conhecimento ao modelo. Qualidade depende de pesos, instruções, contexto, ferramentas e verificações. Um modelo maior pode melhorar tarefas, mas não implica equivalência automática ao Codex. A única comparação numérica feita aqui é entre execução local e distribuída do mesmo checkpoint; não é comparação de inteligência com outro produto.
+Se não couber, a troca é recusada antes de baixar pesos. Se couber, cada worker recebe apenas seu assignment e busca os intervalos HTTP correspondentes aos seus tensores. Respostas HTTP que tentem entregar um arquivo inteiro são recusadas sem consumir o corpo. Blocos de transferência limitados a 8 MiB são convertidos para FP32 e gravados diretamente em arquivos locais. Não há AutoModelForCausalLM completo neste fluxo. Mesmo um arquivo safetensors de origem que contenha várias partições é acessado somente pelos intervalos necessários.
 
-A execução de um token tem dependências sequenciais entre partições. Latência e banda entre máquinas podem reduzir bastante a velocidade. Mais workers podem aumentar capacidade de memória e atender pipelines, sem garantir menor latência de uma solicitação. Pesos de embeddings/saída e KV precisam ser incluídos no orçamento; RAM/VRAM não são um único espaço de acesso instantâneo.
+Os workers preparam em disco antes de ativar. A geração fica bloqueada durante a transação. Depois da preparação, cada worker descarrega a partição anterior e carrega sua nova partição por mapeamento de arquivos, mantendo o resto do modelo nos outros computadores. Mensagens de inferência vinculam o fingerprint da partição; a geração recomeça com KV novo após a troca. Falha na ativação dispara retorno às partições anteriores. Se não for possível restaurar todos, o serviço bloqueia inferência e oferece recuperação explícita. Journal e seleção persistem; aprovações/tarefas de agente não são retomadas automaticamente.
 
-## O que falta para um perfil grande real
+## Planejar um modelo grande sem instalar seus pesos
 
-1. Definir checkpoint aberto e revisão fixa, licença e arquitetura suportada. Atualmente só GPT-2 e Qwen2 sem sliding window têm adaptadores.
-2. Implementar leitura/particionamento progressivo e formato quantizado, com regressões numéricas para cada formato. A preparação atual carrega todos os pesos FP32 numa única máquina: é um impedimento para checkpoints gigantes nesta máquina.
-3. Medir memória disponível por worker, pesos de cada partição, cache para contexto/concorrrência e margem de execução; recusar alocação insuficiente antes de iniciar.
-4. Transferir apenas partições necessárias com verificação de integridade e criar perfis persistentes por modelo; adicionar troca/coexistência real de clusters à seleção, com descarregamento coordenado.
-5. Validar dois computadores físicos e depois maior escala: numérico, desconexão, retomada de KV, privacidade, throughput, latência e fila justa. O segundo computador ainda não está disponível.
-6. Medir tarefas de programação representativas antes de anunciar capacidade: criar projeto, corrigir bug, alterar múltiplos arquivos, usar dependências, executar testes e manter contexto. Registrar falhas, tokens e tempo com recursos equivalentes. A avaliação de um concorrente exige acesso autorizado e condições reproduzíveis; ainda não foi feita.
+```powershell
+.\.venv\Scripts\python -m mesh plan-model --model-profile coder-32b --parts 32 --root runtime/plans/coder-32b
+```
 
-Exemplo de orçamento, somente aritmética: 32 bilhões de parâmetros em FP32 são aproximadamente 119 GiB só de pesos, antes de buffers/KV/processos. Quantização reduz pesos, mas exige um motor compatível e validação; não está implementada. Não baixar um modelo desses nesta máquina como se estivesse pronto. Na inspeção desta etapa havia cerca de 5,5 GiB de RAM disponível dos 31,9 GiB totais; outros programas pertencem ao usuário e não devem ser encerrados para mascarar essa limitação.
+Esse comando consulta configurações, índice e cabeçalhos dos safetensors e salva somente metadados/tokenizer. Gera manifest.json e assignment-0.json até assignment-31.json. Não cria pesos nem carrega a rede completa. Opcionalmente use --memory-mb com os orçamentos de pesos separados por vírgulas para ajustar as divisões. A estimativa usa FP32, sem quantização.
 
-## Agente e testes
+Para execução física, configure o coordenador com exatamente os endpoints/identidades dos workers do plano e certificados HTTPS válidos em LAN/VPN. Inicie o coordenador com --root apontando para a pasta de metadados. Cada participante recebe somente seu assignment-N.json e uma configuração de worker, sem tokens de usuários nem chave privada do coordenador:
 
-O motor de ferramentas é separado da inteligência: ele valida ações JSON, lê/salva arquivos privados, mostra diferenças, verifica sintaxe/estrutura e permite unittest isolado quando Docker está disponível. Comando no host exige habilitação pelo operador e aprovação individual. Não existe controle geral de navegador/desktop, integração completa Git, imagens, extensões, nem ambiente equivalente a todos os recursos do Codex. Testes com respostas programadas comprovam o executor, não a capacidade do modelo; tools/smoke_agent.py faz uma avaliação separada com inferência real e salva evidência sem inventar respostas.
+```powershell
+python -m mesh worker --id worker-7 --part 7 --assignment assignment-7.json --config worker-config.json --ca ca.pem --cert worker.pem --key worker-key.pem --host ENDERECO_PRIVADO --port PORTA
+```
 
-A meta é um assistente cooperativo de programação com capacidade demonstrável. Não há promessa de qualidade equivalente, perfeição ou segurança absoluta. O critério de anúncio deve ser uma matriz de tarefas executadas e resultados reproduzíveis, não o tamanho do nome exibido no seletor.
+Os argumentos ENDERECO_PRIVADO/PORTA são exemplos a substituir. Cada máquina usa seu próprio diretório de execução, venv, cache e identidade. O worker baixa somente a atribuição local para runtime/model-parts. O coordenador não distribui um arquivo de pesos inteiro. Outros participantes não precisam instalar o checkpoint global. Configuração inicial da rede/certificados continua a cargo do operador; ainda não há adesão pública automática, NAT/DHT nem consenso de créditos.
+
+O lançador run-coder.ps1 continua sendo validação local com dois processos, não uma rede de dois computadores físicos. Em instalações novas ele usa o plano por metadados e atribuições por worker. O comando prepare antigo permanece para regressões pequenas e pode baixar/carregar um modelo inteiro: não o use para modelos grandes. Modelos já preparados pelo caminho antigo continuam compatíveis.
+
+## Resultados e limites atuais
+
+- Troca real executada de Qwen2.5-Coder-0.5B-Instruct para Qwen2.5-0.5B-Instruct, com camadas 0–11 no primeiro worker e 12–23 no segundo. Cada worker buscou aproximadamente 601 MiB da origem e gravou aproximadamente 1,17 GiB FP32. O novo modelo gerou “2+2 equals 4.” pela rede.
+- Planejamento real do Coder 32B com 32 partições: aproximadamente 122,05 GiB FP32 no total, partições entre 3,63 e 6,53 GiB, antes de runtime/KV. A pasta do plano ocupou 11,31 MiB e continha zero arquivos de pesos. A fonte foi acessada somente para metadados.
+- Pedido de troca para 32B nos dois workers atuais foi recusado por memória insuficiente. Nenhuma nova partição foi baixada; checkpoint ativo e consumo de créditos foram preservados.
+- 32B e 72B não foram executados. Não existe segundo computador físico nesta sessão. Listar um perfil ou gerar seu plano não demonstra sua inferência, velocidade nem qualidade.
+- Execução atual usa FP32, contexto de até 4096 tokens e saída de até 512 no Qwen; KV por worker tem orçamento próprio. Quantização, transporte comprimido, contexto ampliado, GPU/heterogeneidade e testes físicos ainda precisam de trabalho/validação.
+
+Arquiteturas suportadas no novo fluxo: Qwen2 sem sliding window, em perfis autorizados e revisões fixas. Hashes locais detectam corrupção; HTTPS e intervalos validados protegem o transporte. Não há prova Merkle dos intervalos contra o hash do checkpoint completo, prova de correção neural, privacidade contra workers hostis nem segurança pública sem confiança.
+
+Um modelo maior não implica equivalência ao Codex. Qualidade precisa de tarefas e avaliações comparáveis. O agente de ferramentas continua experimental; os sucessos de troca, distribuição e transporte não substituem a avaliação da sua autonomia.
+
+Reinício real após seleção: o Qwen geral escolhido foi preservado e os dois workers voltaram usando suas próprias partições mapeadas. Créditos/ganhos e reservas foram preservados; pedido com identificador do checkpoint antigo retornou 409. A pasta selecionada do coordenador continha zero arquivos de pesos. Evidência: runtime/network/model-persistence-evidence.json. Sem novo download integral nem carga de referência para reiniciar. JavaScript passou em node --check; inspeção visual segue não realizada.
+
+Para repetir uma troca pela API: `python tools/switch_model.py --profile coder-0.5b --prompt "What is 2+2?"`. O helper registra job e geração em runtime/model-switch-report.json; exige um perfil diferente do atual. Sua ajuda e sintaxe foram verificadas; a demonstração real desta etapa foi feita diretamente nas mesmas APIs.

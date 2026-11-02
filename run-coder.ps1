@@ -7,7 +7,7 @@ $env:HF_HUB_DISABLE_XET='1'
 $python=Join-Path $PSScriptRoot '.venv/Scripts/python.exe'
 if (!(Test-Path $python)) { throw 'Instale as dependências conforme README.md' }
 if (!(Test-Path 'data/qwen-coder/manifest.json')) {
-  & $python -m mesh prepare --root data/qwen-coder --model Qwen/Qwen2.5-Coder-0.5B-Instruct --revision ea3f2471cf1b1f0db85067f1ef93848e38e88c25
+  & $python -m mesh plan-model --root data/qwen-coder --model-profile coder-0.5b --parts 2
   if ($LASTEXITCODE -ne 0) { throw 'Falha ao preparar o modelo' }
 }
 $arguments=@('tools/run_network.py','--root','data/qwen-coder','--port',"$Port")

@@ -8,12 +8,14 @@ import uvicorn
 
 def main():
     parser=argparse.ArgumentParser(description='Inferência GPT-2 por camadas distribuídas')
-    parser.add_argument('command',choices=['prepare','init','coordinator','worker','peer-key'])
+    parser.add_argument('command',choices=['prepare','init','coordinator','worker','peer-key','plan-model'])
     parser.add_argument('--root',default='data/model')
     parser.add_argument('--config',default='runtime/config.json')
     parser.add_argument('--model',default='sshleifer/tiny-gpt2')
     parser.add_argument('--revision',default='5f91d94bd9cd7190a9f3216ff93cd1dd95f2c7be2')
     parser.add_argument('--parts',type=int,default=2)
+    parser.add_argument('--model-profile',default='coder-32b')
+    parser.add_argument('--assignment',help='Metadata assignment file; download only this worker partition')
     parser.add_argument('--memory-mb',help='Orçamento de pesos por worker, separado por vírgulas')
     parser.add_argument('--id',default='worker-0')
     parser.add_argument('--part',type=int,default=0)
@@ -34,6 +36,20 @@ def main():
         identity=new_identity()
         path.write_text(json.dumps(identity,indent=2),encoding='utf8')
         print('Identidade criada:',identity['peer_id'],'em',path)
+        return
+    if args.command=='plan-model':
+        from .partition_store import plan_remote,atomic_json,PROFILES
+        from transformers import AutoTokenizer
+        if args.model_profile not in PROFILES:raise SystemExit('Perfil desconhecido')
+        root=Path(args.root)
+        if (root/'manifest.json').exists():raise SystemExit('Plano já existe; use outra pasta')
+        capacities=[int(float(x)*1048576) for x in args.memory_mb.split(',')] if args.memory_mb else None
+        result=plan_remote(args.model_profile,args.parts,capacities)
+        root.mkdir(parents=True,exist_ok=True)
+        atomic_json(root/'manifest.json',result);atomic_json(root/'config.json',result['config'])
+        AutoTokenizer.from_pretrained(result['model'],revision=result['revision'],trust_remote_code=False).save_pretrained(root/'tokenizer')
+        for bundle in result['bundles']:atomic_json(root/f"assignment-{bundle['spec']['index']}.json",bundle)
+        print('Somente metadados preparados em',root,'; cada worker usa seu assignment-N.json')
         return
     if args.command=='prepare':
         from .model import prepare
@@ -62,7 +78,7 @@ def main():
             raise SystemExit('Comunicação remota exige HTTPS')
     if remote and not (args.cert and args.key):
         raise SystemExit('Escuta remota exige --cert e --key; use VPN/LAN privada')
-    if len(config['cluster_secret'])<32 or len(config['user_token'])<32:
+    if len(config['cluster_secret'])<32 or (args.command=='coordinator' and len(config.get('user_token',''))<32):
         raise SystemExit('Segredos devem ter pelo menos 32 caracteres')
     verify=ssl.create_default_context(cafile=args.ca) if args.ca else True
     Path('runtime').mkdir(exist_ok=True)
@@ -72,7 +88,16 @@ def main():
         port=args.port or 8000
     else:
         from .worker import create_worker
-        app=create_worker(Path(args.root)/f'part-{args.part}',args.id,config['cluster_secret'],config['coordinator'],config['workers'][args.id],verify,args.device,config.get('peer_network'))
+        directory=Path(args.root)/f'part-{args.part}'
+        if args.assignment:
+            from .partition_store import provision
+            assignment=json.loads(Path(args.assignment).read_text())
+            if assignment['spec']['index']!=args.part:raise SystemExit('Assignment diferente do índice do worker')
+            if Path('runtime/model-active.json').exists():
+                from .partition_store import digest
+                directory=Path('runtime/model-parts')/digest(assignment)
+            else:directory=provision(assignment,'runtime/model-parts')
+        app=create_worker(directory,args.id,config['cluster_secret'],config['coordinator'],config['workers'][args.id],verify,args.device,config.get('peer_network'))
         port=args.port or 8100+args.part
     uvicorn.run(app,host=args.host,port=port,ssl_certfile=args.cert,ssl_keyfile=args.key,access_log=False)
 

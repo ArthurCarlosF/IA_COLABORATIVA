@@ -17,3 +17,6 @@
 - Não exibir modelo ausente como disponível nem alegar equivalência ao Codex sem avaliação comparável.
 - Comandos no host exigem habilitação explícita e aprovação por proposta; nunca executar comandos de projeto nos workers de terceiros.
 - Manter DEPENDENCIAS.md e MODELOS.md coerentes com o executor e os perfis.
+
+- Para modelos grandes, usar plan-model/assignment e HTTP parcial. Nunca baixar/carregar o checkpoint completo como atalho para preparar as partes.
+- Plano ou perfil cadastrado não significa modelo executado; registrar atribuições, bytes por worker e validação real separadamente.
