@@ -19,3 +19,11 @@ O usuário corrigiu a referência ao celular: era de outro chat. Não desenvolve
 ## Estrutura base do repositório
 
 Preparada publicação em ArthurCarlosF/IA_COLABORATIVA, com empacotamento Python, rotina de CI, premissas e limites de segurança. Dados de runtime, pesos, ambiente virtual e credenciais ficam ignorados. A execução de CI no GitHub só pode ser confirmada após a publicação e consulta ao resultado.
+
+## Próxima sessão: carteira e política diária
+
+Leia docs/CREDIT_PLAN.md. Funcionalidade implementada e validada com 43 testes; o painel novo tem somente checagem sintática, porque o navegador recusou acesso à demonstração. Não tentar contornar essa recusa. O usuário pode abrir localhost:8300 e conferir manualmente.
+
+Iniciar demonstração: `.venv/Scripts/python tools/simulate_hosts.py --credits-demo --port 8300 --serve`. Caminho de configuração e relatório em runtime/simulation/latest.json. user_token autentica local-user; accounts.peer-user autentica peer-user. Não publicar esses tokens nem copiar config para o Git. A versão antiga em localhost:8000/8200, se ainda ativa, pode não conter o painel atualizado.
+
+Continuar com avaliação visual autorizada, fila justa, identidade pública/consenso e modelo pequeno instruído. Não ativar remuneração por memória anunciada nem cadastro público sem verificação contra fraude. Não vender créditos: decisão explícita do usuário.

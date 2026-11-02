@@ -7,7 +7,9 @@ import time
 class Ledger:
     def __init__(self,path):
         self.db=sqlite3.connect(path,check_same_thread=False)
-        self.lock=threading.Lock()
+        self.lock=threading.RLock()
+        self.db.execute('PRAGMA journal_mode=WAL')
+        self.db.execute('PRAGMA busy_timeout=10000')
         self.db.execute('CREATE TABLE IF NOT EXISTS entries (seq INTEGER PRIMARY KEY, event TEXT NOT NULL, previous TEXT NOT NULL, hash TEXT NOT NULL, receipt TEXT UNIQUE NOT NULL)')
         self.db.commit()
 

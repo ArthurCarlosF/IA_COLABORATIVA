@@ -3,6 +3,8 @@ import anyio
 import hashlib
 import hmac
 import json
+import re
+import math
 import time
 import uuid
 from contextlib import asynccontextmanager
@@ -13,6 +15,7 @@ from fastapi.responses import HTMLResponse,StreamingResponse
 from pydantic import BaseModel,Field,ValidationError,ConfigDict
 from transformers import AutoTokenizer
 from .ledger import Ledger
+from .credits import Wallet,InsufficientCredits
 from .protocol import authenticated,encode,headers,unpack
 
 class Chat(BaseModel):
@@ -20,7 +23,7 @@ class Chat(BaseModel):
     prompt:str=Field(min_length=1,max_length=4096)
     max_tokens:int=Field(default=32,ge=1,le=128)
 
-def create_coordinator(root,secret,user_token,allowed,db_path,verify=True):
+def create_coordinator(root,secret,user_token,allowed,db_path,verify=True,accounts=None,worker_owners=None,daily_tokens=20000,credit_timezone='America/Sao_Paulo'):
     root=Path(root)
     manifest=json.loads((root/'manifest.json').read_text())
     tokenizer=AutoTokenizer.from_pretrained(root/'tokenizer',local_files_only=True)
@@ -29,7 +32,19 @@ def create_coordinator(root,secret,user_token,allowed,db_path,verify=True):
     assignments={worker_id:manifest['parts'][i] for i,worker_id in enumerate(allowed)}
     nodes={}
     gate=asyncio.Lock()
+    identities={'local-user':user_token,**(accounts or {})}
+    if any(not re.fullmatch(r'[A-Za-z0-9_.-]{1,64}',user) or not isinstance(token,str) or len(token)<32 for user,token in identities.items()):
+        raise ValueError('Identidades ou tokens inválidos')
+    if len(set(identities.values()))!=len(identities):raise ValueError('Cada conta exige token exclusivo')
+    token_hashes={user:hashlib.sha256(token.encode()).digest() for user,token in identities.items()}
+    owners={worker:'local-user' for worker in allowed}
+    if worker_owners:
+        if set(worker_owners)-set(allowed):raise ValueError('Proprietário de worker desconhecido')
+        owners.update(worker_owners)
+    if any(owner not in identities for owner in owners.values()):raise ValueError('Proprietário deve ter identidade configurada')
     ledger=Ledger(db_path)
+    wallet=Wallet(ledger,daily_tokens,credit_timezone)
+    wallet.recover()
     metrics=dict(requests=0,failures=0,tokens=0,last_seconds=0,tokens_per_second=0)
     fingerprints={s['index']:hashlib.sha256((root/f"part-{s['index']}"/'weights.pt').read_bytes()).hexdigest() for s in manifest['parts']}
     client=httpx.AsyncClient(timeout=20,verify=verify,trust_env=False)
@@ -40,11 +55,17 @@ def create_coordinator(root,secret,user_token,allowed,db_path,verify=True):
         await client.aclose()
     app=FastAPI(lifespan=lifespan,docs_url=None,redoc_url=None,openapi_url=None)
     app.state.ledger=ledger
+    app.state.wallet=wallet
 
     def auth(request):
-        token=request.headers.get('authorization','').removeprefix('Bearer ')
-        if not hmac.compare_digest(token.encode(),user_token.encode()):
-            raise HTTPException(401,'Autenticação necessária')
+        value=request.headers.get('authorization','')
+        if not value.startswith('Bearer '):raise HTTPException(401,'Autenticação necessária')
+        digest=hashlib.sha256(value[7:].encode()).digest()
+        matched=None
+        for user,expected in token_hashes.items():
+            if hmac.compare_digest(digest,expected):matched=user
+        if matched is None:raise HTTPException(401,'Autenticação necessária')
+        return matched
 
     async def rpc(node,path,message):
         body=encode(message)
@@ -93,18 +114,26 @@ def create_coordinator(root,secret,user_token,allowed,db_path,verify=True):
 
     @app.get('/api/status')
     async def status(request:Request):
-        auth(request)
+        user=auth(request)
         rows=[dict(id=k,url=n['url'],spec=n['spec'],resources=n['resources'],online=time.monotonic()-n['seen']<8) for k,n in nodes.items()]
-        return dict(model=manifest['model'],revision=manifest['revision'],nodes=rows,metrics=metrics,busy=gate.locked(),required_parts=len(manifest['parts']),assignments=assignments,ledger_valid=ledger.verify())
+        return dict(model=manifest['model'],revision=manifest['revision'],nodes=rows,metrics=metrics,busy=gate.locked(),required_parts=len(manifest['parts']),assignments=assignments,ledger_valid=ledger.verify(),usage=wallet.snapshot(user))
+
+    @app.get('/api/usage')
+    async def usage(request:Request):
+        return wallet.snapshot(auth(request))
 
     @app.get('/api/credits')
     async def credits(request:Request):
-        auth(request)
-        return dict(valid=ledger.verify(),entries=ledger.export(),unit='token-layer',payments=False)
+        user=auth(request)
+        # Legacy token-layer receipts remain diagnostic; wallet events are authoritative.
+        entries=[e for e in ledger.export() if e['event']['user']==user or owners.get(e['event']['worker'])==user]
+        audit=wallet.audit(user)
+        return dict(valid=ledger.verify() and audit['valid'],entries=entries,unit='token-layer',payments=False,
+                    usage=wallet.snapshot(user),wallet=audit)
 
     @app.post('/api/chat')
     async def chat(request:Request):
-        auth(request)
+        user=auth(request)
         if request.headers.get('content-length') and int(request.headers['content-length'])>20000:
             raise HTTPException(413,'Mensagem muito longa')
         size=0
@@ -130,6 +159,14 @@ def create_coordinator(root,secret,user_token,allowed,db_path,verify=True):
             gate.release()
             raise HTTPException(422,'Contexto máximo: 512 tokens incluindo resposta')
         sid=uuid.uuid4().hex
+        try:
+            output_budget=wallet.reserve(sid,user,len(ids),query.max_tokens)
+        except InsufficientCredits as exc:
+            gate.release()
+            raise HTTPException(402,dict(code='insufficient_tokens',message=str(exc),usage=wallet.snapshot(user)))
+        except Exception:
+            gate.release()
+            raise
 
         async def generate():
             import torch
@@ -142,18 +179,26 @@ def create_coordinator(root,secret,user_token,allowed,db_path,verify=True):
             generated=[]
             text=''
             try:
-                for iteration in range(query.max_tokens):
+                for iteration in range(output_budget):
                     if await request.is_disconnected():
                         break
                     length=value['shape'][1]
+                    completed=[]
                     for node in pipeline:
                         reply=await rpc(node,'/step',dict(session=sid,position=position,tensor=value))
                         expected=position+length
                         if reply['position']!=expected or reply['units']!=length*(node['spec']['end']-node['spec']['start']):
                             raise ValueError('Resposta inconsistente do worker')
-                        ledger.append(f"{sid}:{iteration}:{node['id']}",'local-user',node['id'],reply['units'],reply['seconds'])
+                        if not isinstance(reply.get('seconds'),(float,int)) or not math.isfinite(reply['seconds']) or reply['seconds']<0:
+                            raise ValueError('Duração inválida do worker')
+                        completed.append((node,reply))
                         value=reply['tensor']
                     logits=unpack(value)
+                    if list(logits.shape)!=[1,1,tokenizer.vocab_size]:raise ValueError('Logits inválidos')
+                    cost=len(ids)+1 if iteration==0 else 1
+                    wallet.settle(sid,iteration,cost,[dict(id=node['id'],owner=owners[node['id']],layers=node['spec']['end']-node['spec']['start'],input_tokens=length) for node,_ in completed])
+                    for node,reply in completed:
+                        ledger.append(f"{sid}:{iteration}:{node['id']}",user,node['id'],reply['units'],reply['seconds'])
                     token=int(logits[0,-1].argmax())
                     if token==tokenizer.eos_token_id:
                         break
@@ -161,12 +206,13 @@ def create_coordinator(root,secret,user_token,allowed,db_path,verify=True):
                     text=tokenizer.decode(generated,skip_special_tokens=True)
                     count+=1
                     metrics['tokens']+=1
-                    yield 'data: '+json.dumps(dict(type='token',text=text,token=token),ensure_ascii=False)+'\n\n'
+                    yield 'data: '+json.dumps(dict(type='token',text=text,token=token,usage=wallet.snapshot(user)),ensure_ascii=False)+'\n\n'
                     position+=length
                     value=pack(torch.tensor([[token]],dtype=torch.long))
                 elapsed=time.perf_counter()-started
                 metrics.update(last_seconds=elapsed,tokens_per_second=count/max(elapsed,1e-9))
-                yield 'data: '+json.dumps(dict(type='done',tokens=count,seconds=elapsed,session=sid))+'\n\n'
+                wallet.release(sid)
+                yield 'data: '+json.dumps(dict(type='done',tokens=count,seconds=elapsed,session=sid,input_tokens=len(ids),output_budget=output_budget,usage=wallet.snapshot(user)))+'\n\n'
             except (httpx.HTTPError,ValueError,KeyError,RuntimeError) as exc:
                 metrics['failures']+=1
                 yield 'data: '+json.dumps(dict(type='error',message='Falha no worker; geração interrompida. '+type(exc).__name__))+'\n\n'
@@ -175,6 +221,9 @@ def create_coordinator(root,secret,user_token,allowed,db_path,verify=True):
                     with anyio.CancelScope(shield=True):
                         await asyncio.gather(*(rpc(n,'/release',dict(session=sid)) for n in pipeline),return_exceptions=True)
                 finally:
-                    gate.release()
+                    try:
+                        wallet.release(sid)
+                    finally:
+                        gate.release()
         return StreamingResponse(generate(),media_type='text/event-stream',headers={'X-Accel-Buffering':'no'})
     return app

@@ -47,6 +47,7 @@ def cluster(tmp_path_factory,request):
         cert_path.write_bytes(cert.public_bytes(serialization.Encoding.PEM))
         (directory/'test-key.pem').write_bytes(key.private_bytes(serialization.Encoding.PEM,serialization.PrivateFormat.PKCS8,serialization.NoEncryption()))
     config=dict(cluster_secret='c'*64,user_token='u'*64,coordinator=f'{scheme}://127.0.0.1:{ports[0]}',workers={f'worker-{i}':f'{scheme}://127.0.0.1:{ports[i+1]}' for i in range(2)})
+    config.update(accounts={'peer-user':'p'*64,'limited-user':'l'*64},worker_owners={'worker-0':'local-user','worker-1':'peer-user'},daily_tokens=200)
     cfg=directory/'config.json'
     cfg.write_text(json.dumps(config))
     children=[]
@@ -186,11 +187,15 @@ def test_04_cache_release_and_memory(cluster):
 
 def test_05_worker_failure_and_recovery(cluster):
     c=cluster
+    before=c['client'].get(c['config']['coordinator']+'/api/usage',headers=c['auth']).json()
     worker=c['workers'][1]
     worker.terminate()
     worker.wait(10)
     response=c['client'].post(c['config']['coordinator']+'/api/chat',headers=c['auth'],json=dict(prompt='Hello',max_tokens=2))
     assert response.status_code==503 or (response.status_code==200 and '"type": "error"' in response.text)
+    failed_usage=c['client'].get(c['config']['coordinator']+'/api/usage',headers=c['auth']).json()
+    assert failed_usage['spent_total']==before['spent_total']
+    assert failed_usage['daily_reserved']==0 and failed_usage['extra_reserved']==0
     status=rpc(c,0,'/status',{})
     assert status['resources']['sessions']==0
     c['workers'][1]=c['start']('worker',1)
@@ -224,5 +229,75 @@ def test_06_concurrency_and_cancel(cluster):
         if not state['busy']:break
         time.sleep(.1)
     assert not state['busy']
+    assert state['usage']['daily_reserved']==0 and state['usage']['extra_reserved']==0
     assert all(rpc(c,i,'/status',{})['resources']['sessions']==0 for i in range(2))
     REPORT['cancel_and_concurrency']='second generation rejected with 429; client disconnected; gate and both KV caches released'
+
+
+def test_07_real_reciprocity_and_private_accounts(cluster):
+    c=cluster
+    url=c['config']['coordinator']
+    peer={'Authorization':'Bearer '+'p'*64}
+    def usage(headers):
+        response=c['client'].get(url+'/api/usage',headers=headers)
+        response.raise_for_status()
+        return response.json()
+    local_before=usage(c['auth'])
+    peer_before=usage(peer)
+    response=c['client'].post(url+'/api/chat',headers=c['auth'],json=dict(prompt='Hello',max_tokens=3))
+    assert response.status_code==200
+    events=[json.loads(s[6:]) for s in response.text.split('\n\n') if s.startswith('data: ')]
+    assert events[-1]['type']=='done' and events[-1]['tokens']==3
+    cost=events[-1]['input_tokens']+3
+    local_after=usage(c['auth'])
+    peer_after=usage(peer)
+    assert local_after['spent_total']-local_before['spent_total']==cost
+    assert peer_after['earned_total']-peer_before['earned_total']==cost/2
+    assert local_after['earned_total']==local_before['earned_total']
+    assert local_after['daily_reserved']==0 and local_after['extra_reserved']==0
+    per_token=[e['usage']['daily_remaining'] for e in events if e['type']=='token']
+    assert all(a>b for a,b in zip(per_token,per_token[1:]))
+    assert events[-1]['usage']['daily_reserved']==0
+    response=c['client'].post(url+'/api/chat',headers=peer,json=dict(prompt='Hello',max_tokens=3))
+    assert response.status_code==200 and '"type": "done"' in response.text
+    assert usage(c['auth'])['earned_total']-local_after['earned_total']==cost/2
+    assert usage(peer)['earned_total']==peer_after['earned_total']
+    audit=c['client'].get(url+'/api/credits',headers=peer).json()
+    assert audit['valid'] and audit['wallet']['valid']
+    assert all(e['event']['account']=='peer-user' for e in audit['wallet']['entries'])
+    assert c['client'].get(url+'/api/usage').status_code==401
+    REPORT['reciprocity']=dict(local_cost=cost,peer_reward=cost/2,reverse_reward=cost/2,private_audit=True)
+
+
+def test_08_daily_exhaustion_and_real_extra_spending(cluster):
+    c=cluster
+    url=c['config']['coordinator']
+    limited={'Authorization':'Bearer '+'l'*64}
+    prompt=' '.join(['x']*199)
+    response=c['client'].post(url+'/api/chat',headers=limited,json=dict(prompt=prompt,max_tokens=2))
+    assert response.status_code==200
+    events=[json.loads(s[6:]) for s in response.text.split('\n\n') if s.startswith('data: ')]
+    assert events[-1]['type']=='done'
+    assert events[-1]['input_tokens']==199 and events[-1]['output_budget']==1
+    state=c['client'].get(url+'/api/usage',headers=limited).json()
+    assert state['daily_remaining']==0 and state['extra_remaining']==0
+    exhausted=c['client'].post(url+'/api/chat',headers=limited,json=dict(prompt='Hello',max_tokens=1))
+    assert exhausted.status_code==402
+    assert exhausted.json()['detail']['code']=='insufficient_tokens'
+    # Consume the peer's daily grant in one real prefill, then verify earned extra is usable.
+    peer={'Authorization':'Bearer '+'p'*64}
+    before=c['client'].get(url+'/api/usage',headers=peer).json()
+    remaining=int(before['daily_remaining'])
+    assert remaining>=2
+    response=c['client'].post(url+'/api/chat',headers=peer,json=dict(prompt=' '.join(['x']*(remaining-1)),max_tokens=1))
+    assert response.status_code==200 and '"type": "done"' in response.text
+    before=c['client'].get(url+'/api/usage',headers=peer).json()
+    assert before['daily_remaining']==0 and before['extra_remaining']>=2
+    response=c['client'].post(url+'/api/chat',headers=peer,json=dict(prompt='Hello',max_tokens=1))
+    assert response.status_code==200 and '"type": "done"' in response.text
+    after=c['client'].get(url+'/api/usage',headers=peer).json()
+    assert after['daily_remaining']==0
+    assert after['extra_remaining']==before['extra_remaining']-2
+    assert after['extra_reserved']==0
+    assert c['client'].get(url+'/api/credits',headers=peer).json()['valid']
+    REPORT['quota_exhaustion']=dict(zero_balance_http=402,output_clipped=True,extra_spent=2)

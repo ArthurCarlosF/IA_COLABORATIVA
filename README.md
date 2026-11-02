@@ -70,9 +70,31 @@ A suíte usa portas locais livres e encerra seus próprios processos. Exige o ch
 
 Serviços escutam apenas loopback por padrão. Mensagens internas têm HMAC-SHA256 com janela de 30 s; cada passo verifica a posição KV para rejeitar repetições. Workers e URLs precisam constar da lista permitida; o hash dos pesos e a especificação devem coincidir com o manifesto do coordenador. Tensores usam JSON/base64 com dimensões e tipos restritos: nenhum pickle de rede. Os arquivos de pesos locais são carregados com `weights_only=True`.
 
-O chat e a telemetria exigem Bearer token; prompts não são gravados em logs. Para rede remota, o programa recusa HTTP e exige HTTPS com verificação de certificado. Não abrir portas de roteador. Consulte DEPLOY_LAN.md. A proteção padrão é para uma rede de workers **confiáveis**, não para participantes anônimos potencialmente maliciosos. O segredo de cluster é compartilhado: não fornece identidade criptográfica independente por máquina.
+O chat, a telemetria e o saldo exigem Bearer token por conta; prompts não são gravados em logs. Para rede remota, o programa recusa HTTP e exige HTTPS com verificação de certificado. Não abrir portas de roteador. Consulte DEPLOY_LAN.md. A proteção padrão é para uma rede de workers **confiáveis**, não para participantes anônimos potencialmente maliciosos. O segredo de cluster é compartilhado: não fornece identidade criptográfica independente por máquina.
 
-O livro SQLite contém lançamentos de débito e crédito, identificadores idempotentes e uma cadeia SHA-256 verificável. Unidade: tokens de entrada efetivamente processados × camadas executadas. Inclui prefill e passos concluídos antes de uma falha. Não equivale a FLOPs, dinheiro ou prova contra fraude. O tempo é reportado pelo worker. Um administrador com controle do banco pode reescrever a cadeia; exporte e ancore os hashes externamente para auditoria contra esse cenário. Não há pagamentos nem saldo mínimo obrigatório nesta versão.
+O SQLite conserva os recibos antigos em token-layer como diagnóstico e mantém uma carteira nova, em tokens equivalentes, com reservas, liquidações e cadeia de eventos. O extrato verifica também se os saldos/reservas correspondem aos eventos. Não há pagamentos, venda ou transferência de créditos. O administrador local ainda pode reescrever banco e cadeia; não é consenso distribuído.
+
+## Franquia diária e créditos por contribuição
+
+- Padrão: **20.000 tokens/dia**, renovação às **00:00 de America/Sao_Paulo**, sem acumular a parte gratuita. A concessão ocorre na primeira consulta/requisição do novo dia, inclusive após ficar offline; não depende de um agendador.
+- Entrada e saída calculadas consomem tokens; saída EOS também conta. Usa primeiro a franquia e depois os créditos extras, que não expiram.
+- Antes de gerar, reserva um orçamento. Se houver pouco saldo, reduz o limite de saída; se não couber entrada + uma saída, responde 402. Valores reservados aparecem separados. O saldo restante cai conforme cada passo é concluído.
+- Um token completo tem seu crédito dividido entre workers proporcionalmente às camadas, com precisão de seis casas decimais. Uma partição não ganha um token inteiro por repetir apenas uma fração do modelo.
+- Trabalho para a própria conta não gera crédito extra. Contribuição remunerada só vem de tarefas de outras contas. Nenhum crédito é emitido por um passo incompleto ou por apenas anunciar memória.
+- Ao terminar, cancelar ou falhar, devolve a reserva não utilizada. Reinício recupera reservas abandonadas. Durante a meia-noite, uma tarefa usa a reserva do dia em que iniciou; a franquia nova não é usada para cobrar retroativamente.
+- O cartão **Uso e créditos** mostra franquia diária, renovação, extra disponível, contribuição acumulada, reservas e extrato privado.
+
+Configure `daily_tokens`, `credit_timezone`, `accounts` e `worker_owners` em `runtime/config.json`. A conta `local-user` usa `user_token`; `accounts` mapeia identificadores adicionais a tokens secretos distintos de pelo menos 32 caracteres. `worker_owners` associa cada worker a uma conta existente. Sem associação explícita, os workers pertencem a `local-user`. Não compartilhar o segredo de cluster com usuários comuns.
+
+Para demonstrar duas contas e contribuições reais:
+
+```powershell
+.\.venv\Scripts\python.exe tools/simulate_hosts.py --credits-demo --port 8300 --serve
+```
+
+Abra http://127.0.0.1:8300. O caminho do arquivo de configuração é exibido pelo lançador e também está em `runtime/simulation/latest.json`. Use `user_token` para a conta principal ou o token em `accounts.peer-user` para a outra conta. O lançador executa tarefas nas duas direções e compara os logits com a execução local. Dados, segredos e certificados ficam ignorados pelo Git.
+
+**Limites:** o valor diário inicial não garante horas de uso nem qualidade de programação. O checkpoint continua tiny-gpt2. Identidades autorizadas e um coordenador/banco local são obrigatórios nesta fase; contas em conluio e participantes hostis não estão resolvidos. Concorrência ainda recebe 429 em vez de uma fila justa. Veja o [plano detalhado](docs/CREDIT_PLAN.md).
 
 ## Validar como dois hosts no mesmo computador
 

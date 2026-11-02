@@ -36,7 +36,7 @@ def main():
         if config_path.exists():
             raise SystemExit('Configuração já existe; não sobrescrita')
         config_path.parent.mkdir(parents=True,exist_ok=True)
-        value=dict(cluster_secret=secrets.token_hex(32),user_token=secrets.token_urlsafe(32),coordinator='http://127.0.0.1:8000',workers={f'worker-{i}':f'http://127.0.0.1:{8100+i}' for i in range(args.parts)})
+        value=dict(cluster_secret=secrets.token_hex(32),user_token=secrets.token_urlsafe(32),coordinator='http://127.0.0.1:8000',workers={f'worker-{i}':f'http://127.0.0.1:{8100+i}' for i in range(args.parts)},daily_tokens=20000,credit_timezone='America/Sao_Paulo',worker_owners={f'worker-{i}':'local-user' for i in range(args.parts)})
         config_path.write_text(json.dumps(value,indent=2),encoding='utf8')
         print('Segredos criados em',config_path,'- restrinja acesso ao arquivo')
         return
@@ -58,7 +58,7 @@ def main():
     Path('runtime').mkdir(exist_ok=True)
     if args.command=='coordinator':
         from .coordinator import create_coordinator
-        app=create_coordinator(args.root,config['cluster_secret'],config['user_token'],config['workers'],'runtime/credits.sqlite',verify)
+        app=create_coordinator(args.root,config['cluster_secret'],config['user_token'],config['workers'],'runtime/credits.sqlite',verify,accounts=config.get('accounts'),worker_owners=config.get('worker_owners'),daily_tokens=config.get('daily_tokens',20000),credit_timezone=config.get('credit_timezone','America/Sao_Paulo'))
         port=args.port or 8000
     else:
         from .worker import create_worker

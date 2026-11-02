@@ -51,6 +51,7 @@ def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--serve',action='store_true',help='Manter chat e workers ativos após validar')
     parser.add_argument('--port',type=int,default=8200)
+    parser.add_argument('--credits-demo',action='store_true',help='Duas contas e reciprocidade real de créditos')
     args=parser.parse_args()
     if not 1024<=args.port<=65533:
         raise SystemExit('Porta base deve estar entre 1024 e 65533')
@@ -81,6 +82,8 @@ def main():
     config=dict(cluster_secret=secrets.token_hex(32),user_token=secrets.token_urlsafe(32),
                 coordinator=f'http://127.0.0.1:{args.port}',
                 workers={'pc-a':f'https://127.0.0.2:{args.port+1}','pc-b':f'https://127.0.0.3:{args.port+2}'})
+    if args.credits_demo:
+        config.update(accounts={'peer-user':secrets.token_urlsafe(32)},worker_owners={'pc-a':'local-user','pc-b':'peer-user'},daily_tokens=20000,credit_timezone='America/Sao_Paulo')
     cfg=directory/'config.json'
     cfg.write_text(json.dumps(config,indent=2),encoding='utf8')
     for i,label in enumerate(config['workers']):
@@ -167,6 +170,20 @@ def main():
         (directory/'verifier.log').write_text(result.stdout+result.stderr,encoding='utf8')
         if result.returncode:raise RuntimeError('Verificação falhou; veja verifier.log')
         report['inference']=json.loads((directory/'inference-evidence.json').read_text(encoding='utf8'))
+        if args.credits_demo:
+            peer_auth={'Authorization':'Bearer '+config['accounts']['peer-user']}
+            peer_response=client.post(config['coordinator']+'/api/chat',headers=peer_auth,json=dict(prompt='Hello',max_tokens=8))
+            peer_response.raise_for_status()
+            assert '"type": "done"' in peer_response.text
+            report['usage_demo']={}
+            for label,identity in [('local-user',auth),('peer-user',peer_auth)]:
+                usage_response=client.get(config['coordinator']+'/api/usage',headers=identity)
+                usage_response.raise_for_status()
+                report['usage_demo'][label]=usage_response.json()
+            assert report['usage_demo']['local-user']['earned_total']>0
+            assert report['usage_demo']['peer-user']['earned_total']>0
+            report['wallet_integrity']=client.get(config['coordinator']+'/api/credits',headers=auth).json()['valid']
+            assert report['wallet_integrity']
         report['recovery_verified']=True
         report['passed']=True
         (directory/'report.json').write_text(json.dumps(report,indent=2,ensure_ascii=False),encoding='utf8')

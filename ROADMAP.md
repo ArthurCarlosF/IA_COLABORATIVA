@@ -25,4 +25,11 @@
 - Identidades individuais e mTLS, isolamento e limites por participante.
 - Verificação de execução e política para workers não confiáveis.
 - Contabilidade transacional com recibos independentes, ancoragem externa e usuários múltiplos.
-- Só depois avaliar pagamentos reais e modelo econômico.
+- Manter créditos exclusivamente para uso cooperativo, sem compra/venda ou pagamentos reais, conforme decisão do usuário.
+
+## Franquia e reciprocidade — implementadas no coordenador local
+- Franquia diária por identidade autorizada, fuso, renovação e não acúmulo.
+- Extra por contribuição externa, precisão fracionária e prevenção de autorremuneração.
+- Reservas, saldo insuficiente, cancelamento, recuperação e extrato privado auditável.
+- Painel de uso com tokens restantes, contribuição e créditos extras.
+- Próximos estágios: fila justa, prova de disponibilidade, identidade pública, consenso e modelos úteis.
