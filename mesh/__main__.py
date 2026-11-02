@@ -68,7 +68,7 @@ def main():
     Path('runtime').mkdir(exist_ok=True)
     if args.command=='coordinator':
         from .coordinator import create_coordinator
-        app=create_coordinator(args.root,config['cluster_secret'],config['user_token'],config['workers'],'runtime/credits.sqlite',verify,accounts=config.get('accounts'),worker_owners=config.get('worker_owners'),daily_tokens=config.get('daily_tokens',20000),credit_timezone=config.get('credit_timezone','America/Sao_Paulo'),peer_network=config.get('peer_network'),coordinator_url=config['coordinator'],sandbox_image=config.get('sandbox_image'))
+        app=create_coordinator(args.root,config['cluster_secret'],config['user_token'],config['workers'],'runtime/credits.sqlite',verify,accounts=config.get('accounts'),worker_owners=config.get('worker_owners'),daily_tokens=config.get('daily_tokens',20000),credit_timezone=config.get('credit_timezone','America/Sao_Paulo'),peer_network=config.get('peer_network'),coordinator_url=config['coordinator'],sandbox_image=config.get('sandbox_image'),allow_host_commands=config.get('allow_host_commands',False))
         port=args.port or 8000
     else:
         from .worker import create_worker

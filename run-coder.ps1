@@ -1,4 +1,4 @@
-﻿param([int]$Port=8400)
+﻿param([int]$Port=8400,[switch]$AllowHostCommands)
 $ErrorActionPreference='Stop'
 $env:PYTHONUTF8='1'
 Set-Location $PSScriptRoot
@@ -11,6 +11,7 @@ if (!(Test-Path 'data/qwen-coder/manifest.json')) {
   if ($LASTEXITCODE -ne 0) { throw 'Falha ao preparar o modelo' }
 }
 $arguments=@('tools/run_network.py','--root','data/qwen-coder','--port',"$Port")
+if ($AllowHostCommands) { $arguments+='--allow-host-commands' }
 $imageId=& $python tools/docker_probe.py
 if ($imageId -match '^sha256:[0-9a-f]{64}$') { $arguments+=@('--sandbox-image',"$imageId") }
 else { Write-Host 'Docker indisponível ou sem imagem local; testes em container ficam desativados.' }

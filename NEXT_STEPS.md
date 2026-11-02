@@ -49,3 +49,15 @@ Ao continuar, leia também LEIA-ME-PRIMEIRO.txt e mantenha-o atualizado na mesma
 - Backend final: 74 passed, 2 skipped; Docker isolado havia passado na rodada de 71 e está indisponível agora com erro 500. Não reiniciar Docker compartilhado sem tratar o impacto com o usuário.
 - Corrigido RemoteProtocolError transitório com passo idempotente e uma repetição RPC. Não remover essa proteção; recibos/contas não podem duplicar por perda de resposta.
 - Atualizar TXT principal e docs/FUNCTIONAL_STATUS.md a cada avanço. Próximas prioridades: validação visual autorizada, segundo PC físico quando disponível, consenso/identidade pública e benchmarks reais maiores. Não afirmar equivalência ao Codex a partir de uma função simples.
+
+## Continuidade após agente inicial — 02/11/2026
+
+1. Iniciar run-coder.ps1; dados persistem em runtime/network. Usar token local desse perfil. Modo Agente cria tarefas e registra eventos. tools/smoke_agent.py valida modelo real; não usar testes com respostas programadas como prova da inteligência.
+2. Ampliar avaliação de tarefas, com correção de bugs/múltiplos arquivos/testes reais. Um sucesso simples não estabelece qualidade geral. Instalar checkpoints maiores só após orçamento real de memória e benchmark.
+3. Implementar preparação progressiva/quantização e perfis/seleção de clusters reais. Hoje preparar carrega todo o modelo FP32; 32B FP32 requer cerca de 119 GiB só de pesos. O modelo atual não equivale ao Codex.
+4. Histórico persistido não inclui retomada automática: após reinício fica interrompido. Acrescentar retomada explícita com revalidação de arquivos e nova aprovação, compactação recuperável e diffs transacionais.
+5. Comandos: opt-in -AllowHostCommands, aprovação por comando, somente operador local. Ampliar isolamento antes de reduzir aprovações. Git, navegador/desktop, importação de projetos grandes e multimodalidade continuam pendentes.
+6. Dois computadores físicos/GPU/escala exigem hardware não disponível nesta sessão. Não declarar testes físicos aprovados. Consenso público, anti-Sybil, prova neural, privacidade hostil e NAT/DHT continuam pendentes.
+7. Validação visual da interface continua pendente após recusa anterior do navegador; sintaxe JavaScript pode ser verificada sem contornar essa recusa.
+
+Impedimento de qualidade observado: Qwen0,5B repete exemplos e gera ações malformadas mesmo após instrução system e ajustes do histórico. O executor recusa essas ações; não relaxar aprovação/validação para mascarar o problema. Próxima evolução exige avaliar um checkpoint de código mais capaz em recursos suficientes, preservar a comparação numérica e medir tarefas reais. O seletor atual não troca checkpoints pelo navegador.

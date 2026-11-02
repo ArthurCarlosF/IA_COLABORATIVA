@@ -30,6 +30,7 @@ def main():
     parser.add_argument('--root',default='data/qwen-coder')
     parser.add_argument('--directory',default='runtime/network')
     parser.add_argument('--sandbox-image')
+    parser.add_argument('--allow-host-commands',action='store_true',help='Enable explicit per-command operator approval; commands run on this host')
     args=parser.parse_args()
     if not 1024<=args.port<=65533:raise SystemExit('Porta inválida')
     model_root=(ROOT/args.root).resolve()
@@ -70,6 +71,7 @@ def main():
         cert_path.write_bytes(cert.public_bytes(serialization.Encoding.PEM))
         key_path.write_bytes(key.private_bytes(serialization.Encoding.PEM,serialization.PrivateFormat.PKCS8,serialization.NoEncryption()))
     active=dict(config)
+    active['allow_host_commands']=args.allow_host_commands
     if args.sandbox_image:active['sandbox_image']=args.sandbox_image
     else:active.pop('sandbox_image',None)
     active_cfg=directory/'active-config.json'

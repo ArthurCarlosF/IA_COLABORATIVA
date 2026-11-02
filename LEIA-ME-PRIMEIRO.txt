@@ -215,3 +215,21 @@ A dimensão desta proposta está no objetivo de construir, em conjunto, uma
 infraestrutura de IA que cada participante ajude a sustentar e da qual também possa
 se beneficiar. O caminho até essa visão deve ser percorrido com implementação real,
 medições, segurança e documentação honesta em cada etapa.
+
+ATUALIZAÇÃO — 02/11/2026: AGENTE INICIAL E SELEÇÃO DO MODELO
+
+A caixa de texto agora tem modo Chat/Agente e identificação selecionável do modelo realmente carregado. Não exibe um modelo gigantesco como disponível sem seus pesos e recursos. Um cluster executa um checkpoint por vez; troca dinâmica ainda não existe. O perfil Qwen continua sendo de 0,5B, com contexto de até 4096 tokens e saída de até 512, não um modelo equivalente ao Codex.
+
+O agente encadeia inferência distribuída, leitura/escrita/busca, diferenças e verificações, com histórico privado persistente, dez etapas e cancelamento. Comandos no computador do solicitante são opcionais (-AllowHostCommands) e pedem aprovação individual. Executam com os direitos do usuário; não são isolados. Os computadores colaboradores não recebem esses comandos, somente operações do seu trecho neural. Não há controle geral de navegador/desktop nem todas as funções de um ambiente profissional de programação.
+
+DEPENDENCIAS.md explica instalação e requisitos. Codex e Claude são opcionais para auxiliar desenvolvimento, não dependências, não fornecem os pesos e não são chamados pela inferência. MODELOS.md explica capacidade, qualidade, modelos maiores e critérios de avaliação. Mais computadores podem viabilizar pesos maiores, mas não tornam automaticamente um checkpoint mais inteligente nem garantem velocidade. A preparação atual ainda precisa carregar todos os pesos FP32 numa máquina; isso impede validar modelos gigantes neste ambiente. Também falta um segundo computador físico.
+
+A ambição permanece universal: transformar capacidade ociosa de computadores em acesso cooperativo gratuito a programação e inteligência artificial. A dimensão da meta exige medir qualidade, corrigir falhas e resolver segurança/privacidade/consenso, sem transformar objetivos futuros em promessas de funcionalidades prontas.
+
+Salvar pelo agente também executa automaticamente o verificador disponível e devolve o resultado ao modelo. Isso verifica sintaxe/estrutura, não a correção funcional. Histórico de ações usa rótulos textuais para reduzir a cópia indevida do envelope pelo modelo pequeno.
+
+O Docker desta máquina continuou excedendo o tempo ao executar containers, embora consultar a imagem funcionasse. O lançador agora exige prova de execução antes de habilitar testes isolados. Essa falha é registrada; sintaxe verificada não significa testes executados.
+
+O modo Agente é experimental: nas avaliações reais o modelo de 0,5B criou arquivos, mas também repetiu exemplos e gerou ações inválidas, recusadas pelo executor. Isso impede prometer autonomia confiável ou equivalência ao Codex. Os testes unitários do agente passam, mas não substituem essa avaliação de qualidade.
+
+Resultado final da avaliação do agente real — 02/11/2026: tools/smoke_agent.py excedeu o limite de 420 segundos e solicitou cancelamento. O checkpoint criou o arquivo correto e a verificação automática de sintaxe passou, mas voltou a copiar exemplos/gerar ações inválidas e não concluiu a tarefa autonomamente. Evidência: runtime/network/agent-smoke-evidence.json; status de avaliação timeout_cancelled. Isto é falha de avaliação, não um teste aprovado. O modo permanece experimental. Não foi demonstrada equivalência ao Codex, nem instalado um modelo maior. Limitações concretas: modelo pequeno sem confiabilidade de ferramentas, RAM disponível insuficiente para checkpoints gigantes FP32/preparação que carrega tudo e ausência de segundo computador físico. Docker local também excedeu tempo de execução. O objetivo completo solicitado não foi atingido nesta sessão; a base distribuída, interface e executor foram ampliados e a continuidade está documentada.

@@ -20,6 +20,7 @@ def create_worker(directory,worker_id,secret,coordinator,url,verify=True,device=
     fingerprint=checkpoint_hash(Path(directory)/'weights.pt')
     sessions={}
     cache_budget=int(os.getenv('MESH_CACHE_MB','128'))*1048576
+    context_limit=min(shard.config.n_positions,4096 if shard.config.model_type=='qwen2' else 512)
     mutex=threading.Lock()
     stop=threading.Event()
     report={'last_error':None}
@@ -96,7 +97,7 @@ def create_worker(directory,worker_id,secret,coordinator,url,verify=True,device=
                 raise ValueError('Invalid token')
             request_hash=hashlib.sha256(encode(message)).hexdigest()
             length=value.shape[1]
-            if position+length>min(shard.config.n_positions,512):
+            if position+length>context_limit:
                 raise ValueError('Context limit exceeded')
             with mutex:
                 old=sessions.get(sid)

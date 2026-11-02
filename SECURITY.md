@@ -32,3 +32,13 @@ Recibos autenticam o digest da requisição e do resultado. Um worker malicioso 
 Arquivos ficam em diretórios próprios por conta, com limites, recusa de travessia/links e revisão otimista. O endpoint de testes é desativado sem sandbox_image aprovado por ID SHA-256. Com essa opção, aceita somente unittest em imagem local, sem shell livre, sem rede, montagem do projeto somente leitura, usuário 65534, cap-drop ALL e limites de CPU/RAM/processos/tempo/saída. Não monta socket Docker nem diretórios externos do usuário.
 
 Containers não são garantia contra falhas do kernel/runtime. Uma rede pública de código hostil exige auditoria e possivelmente isolamento mais forte. O processo coordenador com acesso ao Docker deve continuar sob controle do operador. Créditos de tokens não contabilizam o custo de testes locais nesta versão; executor serial e limites reduzem abuso, mas não substituem política de uso pública.
+
+## Agente de projeto e comandos opcionais
+
+O agente trata respostas do modelo como propostas JSON sujeitas a esquemas e revisões de arquivo. Arquivos de cada conta ficam separados. Textos de arquivos e saída de processos são dados não confiáveis: a instrução de ignorar prompt injection ajuda o modelo, mas não constitui proteção comprovada contra instruções maliciosas.
+
+run-coder.ps1 -AllowHostCommands é uma opção do operador local; permanece desligada por padrão. Cada proposta mostra argv e diretório e exige aprovação humana de uso único, vinculada ao estado de todos os arquivos do projeto. Mudanças entre proposta e execução exigem nova proposta. Somente local-user em origem loopback pode aprovar. A verificação de origem não substitui proteger o token e a configuração. Não encaminhar o serviço publicamente.
+
+O subprocesso recebe argumentos sem shell implícito e ambiente reduzido, tempo limite e limite de saída. Porém o programa aprovado pode abrir rede, acessar arquivos externos, lançar outros programas ou invocar um shell por seus próprios argumentos. Executa com os direitos do usuário e não é uma sandbox. Não habilitar essa opção em serviços expostos ou para pessoas não confiáveis. Tokens do coordenador não são persistidos no histórico do agente nem repassados no ambiente mínimo do comando; ainda assim o processo tem os direitos de acesso aos arquivos do usuário. Os trabalhadores de terceiros não executam ferramentas do agente.
+
+No reinício, tarefas em andamento ficam interrompidas e aprovações pendentes expiram. Não há replay automático de comandos. Histórico local não é criptografado em repouso nem possui sincronização/consenso público. Verificação sintática/estrutural não prova correção funcional nem segurança do arquivo gerado.

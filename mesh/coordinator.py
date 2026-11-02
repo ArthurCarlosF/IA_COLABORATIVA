@@ -23,13 +23,18 @@ from .protocol import authenticated,encode,headers,unpack,checkpoint_hash
 
 class Chat(BaseModel):
     model_config=ConfigDict(extra='forbid')
-    prompt:str=Field(min_length=1,max_length=4096)
-    max_tokens:int=Field(default=32,ge=1,le=128)
+    prompt:str=Field(min_length=1,max_length=32768)
+    max_tokens:int=Field(default=32,ge=1,le=1024)
+    model:str|None=None
+    system:str=Field(default="",max_length=12000)
 
-def create_coordinator(root,secret,user_token,allowed,db_path,verify=True,accounts=None,worker_owners=None,daily_tokens=20000,credit_timezone='America/Sao_Paulo',peer_network=None,coordinator_url=None,workspace_root='runtime/workspaces',sandbox_image=None):
+def create_coordinator(root,secret,user_token,allowed,db_path,verify=True,accounts=None,worker_owners=None,daily_tokens=20000,credit_timezone='America/Sao_Paulo',peer_network=None,coordinator_url=None,workspace_root='runtime/workspaces',sandbox_image=None,allow_host_commands=False):
     root=Path(root)
     manifest=json.loads((root/'manifest.json').read_text())
     tokenizer=AutoTokenizer.from_pretrained(root/'tokenizer',local_files_only=True)
+    model_config=json.loads((root/'config.json').read_text())
+    context_limit=min(4096,model_config.get('max_position_embeddings',4096)) if model_config.get('model_type')=='qwen2' else 512
+    output_limit=512 if model_config.get('model_type')=='qwen2' else 128
     if len(allowed)!=len(manifest['parts']):
         raise ValueError('Configure exatamente um worker por partição')
     assignments={worker_id:manifest['parts'][i] for i,worker_id in enumerate(allowed)}
@@ -55,10 +60,12 @@ def create_coordinator(root,secret,user_token,allowed,db_path,verify=True,accoun
     identity=json.loads(Path(peer_network['identity_files']['coordinator']).read_text()) if peer_network else None
     gossip=None
 
+    agent=None
     @asynccontextmanager
     async def lifespan(app):
         if gossip:gossip.start()
         yield
+        if agent:await agent.close()
         if gossip:gossip.close()
         await client.aclose()
     app=FastAPI(lifespan=lifespan,docs_url=None,redoc_url=None,openapi_url=None)
@@ -145,7 +152,12 @@ def create_coordinator(root,secret,user_token,allowed,db_path,verify=True,accoun
     async def status(request:Request):
         user=auth(request)
         rows=[dict(id=k,url=n['url'],spec=n['spec'],resources=n['resources'],online=time.monotonic()-n['seen']<8) for k,n in nodes.items()]
-        return dict(model=manifest['model'],revision=manifest['revision'],nodes=rows,metrics=metrics,busy=bool(scheduler.active),scheduler=scheduler.status(),required_parts=len(manifest['parts']),assignments=assignments,ledger_valid=ledger.verify(),usage=wallet.snapshot(user))
+        return dict(model=manifest['model'],revision=manifest['revision'],nodes=rows,metrics=metrics,busy=bool(scheduler.active),scheduler=scheduler.status(),required_parts=len(manifest['parts']),assignments=assignments,ledger_valid=ledger.verify(),usage=wallet.snapshot(user),context_limit=context_limit,output_limit=output_limit)
+
+    @app.get('/api/models')
+    async def models(request:Request):
+        auth(request)
+        return dict(active=manifest['model'],models=[dict(id=manifest['model'],revision=manifest['revision'],available=True,parts=len(manifest['parts']),context=context_limit,max_output=output_limit,agent_supported=context_limit>=2048)],switching='one-checkpoint-per-cluster',quality_equivalence_verified=False)
 
     @app.get('/api/usage')
     async def usage(request:Request):
@@ -182,8 +194,10 @@ def create_coordinator(root,secret,user_token,allowed,db_path,verify=True,accoun
         async for chunk in request.stream():
             body.extend(chunk)
             if len(body)>limit:raise HTTPException(413,'Mensagem excede limite')
-        try:return json.loads(body)
+        try:data=json.loads(body)
         except ValueError:raise HTTPException(422,'JSON inválido')
+        if not isinstance(data,dict):raise HTTPException(422,'Esperado objeto JSON')
+        return data
 
     @app.post('/api/workspace/file')
     async def save_file(request:Request):
@@ -214,13 +228,13 @@ def create_coordinator(root,secret,user_token,allowed,db_path,verify=True,accoun
     @app.post('/api/chat')
     async def chat(request:Request):
         user=auth(request)
-        if request.headers.get('content-length') and int(request.headers['content-length'])>20000:
+        if request.headers.get('content-length') and int(request.headers['content-length'])>160000:
             raise HTTPException(413,'Mensagem muito longa')
         size=0
         chunks=[]
         async for chunk in request.stream():
             size+=len(chunk)
-            if size>20000:
+            if size>160000:
                 raise HTTPException(413,'Mensagem muito longa')
             chunks.append(chunk)
         try:
@@ -228,16 +242,18 @@ def create_coordinator(root,secret,user_token,allowed,db_path,verify=True,accoun
         except ValidationError:
             raise HTTPException(422,'Prompt ou limite de tokens inválido')
         sid=uuid.uuid4().hex
+        if query.model is not None and query.model!=manifest['model']:raise HTTPException(409,'Modelo não está carregado neste cluster')
         try:scheduler.admit(user,sid)
         except CapacityError as exc:raise HTTPException(429,str(exc))
         pipeline=sorted([dict(n) for n in nodes.values() if time.monotonic()-n['seen']<8],key=lambda n:n['spec']['index'])
         if [n['spec']['index'] for n in pipeline]!=list(range(len(manifest['parts']))):
             scheduler.leave(user,sid)
             raise HTTPException(503,'Conecte todos os workers necessários')
-        ids=tokenizer.apply_chat_template([dict(role='user',content=query.prompt)],tokenize=True,add_generation_prompt=True) if tokenizer.chat_template else tokenizer.encode(query.prompt)
-        if len(ids)+query.max_tokens>512:
+        messages=([dict(role='system',content=query.system)] if query.system else [])+[dict(role='user',content=query.prompt)]
+        ids=tokenizer.apply_chat_template(messages,tokenize=True,add_generation_prompt=True) if tokenizer.chat_template else tokenizer.encode(query.system+'\n'+query.prompt if query.system else query.prompt)
+        if query.max_tokens>output_limit or len(ids)+query.max_tokens>context_limit:
             scheduler.leave(user,sid)
-            raise HTTPException(422,'Contexto máximo: 512 tokens incluindo resposta')
+            raise HTTPException(422,f'Contexto máximo: {context_limit} tokens incluindo resposta; saída até {output_limit}')
         try:
             output_budget=wallet.reserve(sid,user,len(ids),query.max_tokens)
         except InsufficientCredits as exc:
@@ -322,4 +338,83 @@ def create_coordinator(root,secret,user_token,allowed,db_path,verify=True,accoun
             finally:
                 await finish()
         return StreamingResponse(generate(),media_type='text/event-stream',headers={'X-Accel-Buffering':'no'},background=BackgroundTask(finish))
+    from .agent import AgentStore,AgentManager,TOOLS
+    agent_store=AgentStore(Path(db_path).parent/'agents.sqlite')
+
+    async def agent_infer(authorization,prompt,max_tokens):
+        # Same admission, wallet, activation RPC and cancellation as the public chat.
+        system=TOOLS if prompt.startswith(TOOLS) else ''
+        if system:prompt=prompt[len(TOOLS):]
+        def count(text):
+            messages=([dict(role='system',content=system)] if system else [])+[dict(role='user',content=text)]
+            return len(tokenizer.apply_chat_template(messages,tokenize=True,add_generation_prompt=True) if tokenizer.chat_template else tokenizer.encode(system+text))
+        if count(prompt)+max_tokens>context_limit:
+            raise ValueError('Contexto do agente excede o modelo; reduza tarefa/arquivos. Nenhuma instrução foi descartada.')
+        body=encode(dict(prompt=prompt,system=system,max_tokens=min(max_tokens,output_limit),model=manifest['model']))
+        consumed=False
+        async def receive():
+            nonlocal consumed
+            if not consumed:
+                consumed=True
+                return dict(type='http.request',body=body,more_body=False)
+            await asyncio.sleep(3600)
+            return dict(type='http.disconnect')
+        request=Request(dict(type='http',method='POST',path='/api/chat',headers=[(b'authorization',authorization.encode())],query_string=b'',client=('127.0.0.1',0)),receive)
+        response=await chat(request)
+        text='';done=False
+        try:
+            async for chunk in response.body_iterator:
+                if isinstance(chunk,bytes):chunk=chunk.decode()
+                for item in chunk.split('\n\n'):
+                    if not item.startswith('data: '):continue
+                    data=json.loads(item[6:])
+                    if data['type']=='error':raise RuntimeError(data['message'])
+                    if data['type']=='token':text=data['text']
+                    if data['type']=='done':done=True
+        finally:
+            await response.body_iterator.aclose()
+            if response.background:await response.background()
+        if not done:raise RuntimeError('Inferência interrompida')
+        return text
+
+    agent=AgentManager(agent_store,workspace,agent_infer,sandbox_image,allow_host_commands)
+    app.state.agent=agent
+    def local_operator(request):
+        return bool(request.client and request.client.host in ('127.0.0.1','::1'))
+
+    @app.get('/api/agent/runs')
+    async def agent_runs(request:Request):
+        user=auth(request)
+        return dict(runs=agent_store.listing(user),host_commands=allow_host_commands and local_operator(request) and user=='local-user',max_steps=agent.max_steps)
+
+    @app.post('/api/agent/runs')
+    async def agent_start(request:Request):
+        user=auth(request);data=await bounded_json(request,30000)
+        if set(data)-{'task','model'} or not isinstance(data.get('task'),str):raise HTTPException(422,'Informe task e modelo disponível')
+        if data.get('model',manifest['model'])!=manifest['model']:raise HTTPException(409,'Modelo não carregado')
+        try:
+            run=agent.start(user,data['task'],request.headers['authorization'],local_operator(request))
+            return agent_store.get(run,user)
+        except ValueError as exc:raise HTTPException(409,str(exc))
+
+    @app.get('/api/agent/runs/{run}')
+    async def agent_detail(run:str,request:Request,after:int=0):
+        user=auth(request)
+        try:return dict(run=agent_store.get(run,user),events=agent_store.events(run,user,max(0,after)))
+        except KeyError:raise HTTPException(404,'Tarefa não encontrada')
+
+    @app.post('/api/agent/runs/{run}/cancel')
+    async def agent_cancel(run:str,request:Request):
+        try:agent.cancel(auth(request),run);return dict(ok=True)
+        except KeyError:raise HTTPException(404,'Tarefa não encontrada')
+        except ValueError as exc:raise HTTPException(409,str(exc))
+
+    @app.post('/api/agent/runs/{run}/approve')
+    async def agent_approve(run:str,request:Request):
+        user=auth(request);data=await bounded_json(request,4000)
+        if set(data)!={'id','approved'} or type(data['approved']) is not bool or not isinstance(data['id'],str):raise HTTPException(422,'Aprovação inválida')
+        try:return agent.approve(user,run,data['id'],data['approved'],local_operator(request))
+        except KeyError:raise HTTPException(404,'Tarefa não encontrada')
+        except PermissionError as exc:raise HTTPException(403,str(exc))
+        except ValueError as exc:raise HTTPException(409,str(exc))
     return app

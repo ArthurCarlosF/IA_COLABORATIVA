@@ -73,10 +73,20 @@ O adaptador Qwen2 usa camadas Decoder, RMSNorm, RoPE e GQA originais da versão 
 
 ## Projeto e testes
 
-`mesh/workspace.py` mapeia cada conta a um diretório próprio, valida caminhos, recusa links, limita tamanho/quantidade e exige revisão para sobrescrever. A interface mostra diff. Ast.parse verifica sintaxe sem executar. Unittest é opt-in em Docker com imagem local aprovada por ID SHA-256, rede none, montagem somente leitura, usuário 65534, capabilities removidas, no-new-privileges e limites de CPU/RAM/PIDs/tempo/saída. A API não aceita comandos de shell arbitrários. Ainda não há loop autônomo completo de ferramentas e correção de projetos.
+`mesh/workspace.py` mapeia cada conta a um diretório próprio, valida caminhos, recusa links, limita tamanho/quantidade e exige revisão para sobrescrever. A interface mostra diff. Ast.parse verifica sintaxe sem executar. Unittest é opt-in em Docker com imagem local aprovada por ID SHA-256, rede none, montagem somente leitura, usuário 65534, capabilities removidas, no-new-privileges e limites de CPU/RAM/PIDs/tempo/saída. Por padrão não há execução de comandos no host. O agente inicial e a opção de aprovação por comando estão descritos na atualização abaixo; ainda não há um ambiente completo de programação equivalente ao Codex.
 
 ## Estado persistente e repetição segura
 
 A aplicação de uso normal é iniciada por tools/run_network.py em runtime/network; preserva configuração, identidades, carteira e arquivos. tools/simulate_hosts.py permanece diagnóstico descartável e tools/verify_remote.py pode carregar uma referência completa fora do caminho normal. tools/smoke_network.py valida aplicação real sem referência extra, persistindo checkpoints de evidência.
 
 Cada sessão worker guarda somente a última posição de entrada, hash da requisição e resposta completa, incluindo recibo, além do KV. Repetição idêntica do último passo devolve a resposta sem novo cálculo; conflito retorna 409. Depois que a sessão avança, pedidos mais antigos não são aceitos. O coordenador repete uma vez erros transitórios de protocolo/leitura/conexão/timeout, com assinatura temporal nova e o mesmo corpo. Liquidação continua uma vez por iteração. Cache expira com a sessão; falhas permanentes continuam explícitas.
+
+## Agente de projeto e seletor honesto — 02/11/2026
+
+mesh/agent.py adiciona ciclo de até dez ações, histórico SQLite privado por conta, arquivos/busca/diff, verificadores Python/JSON/estrutura HTML, unittest opcional e cancelamento. A inferência de cada ação usa o mesmo pipeline distribuído, carteira, fila e recibos do chat. Instruções do protocolo usam papel system, separado da tarefa. Tokens de autenticação ficam só em memória, não no histórico do agente. Históricos recentes são limitados; contexto excedido é recusado, sem descartar silenciosamente a tarefa.
+
+Comandos no host são desativados por padrão. O operador pode iniciar run-coder.ps1 -AllowHostCommands: cada comando exige decisão local individual, com argumentos/pasta e impressão das revisões do projeto; mudanças após a proposta invalidam a aprovação. Aprovação é de uso único e expira no reinício. O comando executa no computador do solicitante com seus direitos, sem isolamento; workers remotos só executam suas camadas. Há limites de duração/saída e cancelamento da árvore de processos. Não equivale a isolamento contra comandos hostis nem a controle geral do desktop.
+
+A interface ganhou seletor de modelo abaixo da mensagem, modo Chat/Agente, histórico de tarefas e propostas de aprovação. API /api/models expõe somente o checkpoint carregado; pedidos com outro modelo são recusados. Existe um checkpoint por cluster, sem troca dinâmica/download pelo seletor. Qwen tem contexto limitado a 4096 tokens, saída até 512; GPT-2 mantém 512/128. Não foram instalados nem validados modelos gigantes. DEPENDENCIAS.md e MODELOS.md documentam instalação, limites e etapas necessárias. Não há equivalência de qualidade demonstrada com o Codex.
+
+Salvar pelo agente também executa automaticamente o verificador disponível e devolve o resultado ao modelo. Isso verifica sintaxe/estrutura, não a correção funcional. Histórico de ações usa rótulos textuais para reduzir a cópia indevida do envelope pelo modelo pequeno.

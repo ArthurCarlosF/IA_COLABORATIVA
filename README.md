@@ -4,6 +4,8 @@
 
 Um único checkpoint GPT-2 ou Qwen2 é dividido por camadas. Dois workers executam partes reais da rede; ativações atravessam HTTP autenticado. O coordenador não carrega o modelo completo na inferência.
 
+Dependências e instalação detalhadas: [DEPENDENCIAS.md](DEPENDENCIAS.md). Codex e Claude são opcionais e não são dependências de execução.
+
 ## Estrutura base
 
 - `mesh/`: coordenador, workers, motor, protocolo, créditos e interface inicial.
@@ -26,7 +28,7 @@ Consulte [o estado funcional](docs/FUNCTIONAL_STATUS.md) antes de usar ou amplia
 
 O perfil baixa Qwen/Qwen2.5-Coder-0.5B-Instruct na revisão fixa `ea3f2471cf1b1f0db85067f1ef93848e38e88c25`, prepara duas partições e inicia http://127.0.0.1:8400. Mantém contas, créditos e arquivos em `runtime/network/`, com descoberta assinada. A aplicação não carrega o modelo de referência nem repete benchmarks a cada início. Download e preparação consomem alguns GB de disco/RAM; a validação também carrega o modelo de referência localmente. A primeira execução pode demorar.
 
-Para o executor de testes, Docker deve estar disponível e a imagem oficial `python:3.11-slim` preparada localmente. A opção é ativada pelo lançador somente se houver um ID de imagem disponível. A interface permite salvar arquivos, conferir diferenças e executar unittest restrito, sem terminal livre no host.
+Para o executor de testes, Docker deve estar disponível e a imagem oficial `python:3.11-slim` preparada localmente. A opção é ativada pelo lançador somente se houver um ID de imagem disponível. A interface permite salvar arquivos, conferir diferenças e executar unittest restrito, sem execução de comandos no host por padrão. A opção de aprovação individual está descrita abaixo.
 
 ## Executar no Windows
 
@@ -132,3 +134,11 @@ Isso executa uma tarefa real e consome a franquia das contas de teste. Salva evi
 A simulação `tools/simulate_hosts.py` continua criando ambientes descartáveis, copiando pesos por padrão e provocando falhas para diagnóstico. Não usar seus diretórios novos a cada execução como carteira persistente de produção.
 
 Falhas transitórias de transporte têm uma repetição limitada. O worker devolve o resultado armazenado se receber exatamente o último passo da sessão novamente; uma repetição conflitante é recusada. Assim uma resposta perdida não reexecuta o mesmo passo nem gera novo débito.
+
+## Agente de projeto e escolha de modelo
+
+A caixa de mensagem tem os modos Chat e Agente de projeto e mostra o checkpoint realmente carregado. O backend rejeita um identificador de modelo ausente; esta versão executa um checkpoint por cluster. Nenhum modelo gigante é anunciado como instalado. O agente encadeia inferência distribuída e ferramentas de arquivos/busca/diff/verificação, com histórico privado persistente e cancelamento. Limita-se a dez etapas; ao reiniciar, tarefas em andamento ficam interrompidas, sem repetir comandos automaticamente.
+
+Comandos no computador do solicitante são opcionais: `run-coder.ps1 -AllowHostCommands`. Cada proposta precisa de aprovação local individual, vinculada aos argumentos e revisões do projeto. Comandos executam com os direitos do usuário; não são isolados. Sem essa opção, o agente trabalha com arquivos e verificadores ou unittest isolado quando Docker está disponível. A interface não oferece controle geral de navegador/computador, nem demonstra qualidade equivalente ao Codex. Histórico do agente não é memória ilimitada: contexto excedido é recusado explicitamente.
+
+Avaliação real do agente nesta etapa: arquivo criado e sintaxe válida, porém tarefa não concluída dentro de 420 segundos por respostas de ferramentas inconsistentes do modelo. O modo é experimental. Leia TEST_RESULTS.md: testes do executor aprovados não significam autonomia ou qualidade comparável ao Codex. Docker local falhou por timeout e deve permanecer desabilitado quando o probe não executar.
