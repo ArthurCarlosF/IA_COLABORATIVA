@@ -1,5 +1,7 @@
 # IA Colaborativa — base de inferência distribuída
 
+**Comece por [LEIA-ME-PRIMEIRO.txt](LEIA-ME-PRIMEIRO.txt)**: visão, dimensão, princípios, funcionamento e estado real do projeto. Esse arquivo deve acompanhar as alterações relevantes.
+
 Um único checkpoint GPT-2 é dividido por camadas. Dois workers executam partes reais da rede; ativações atravessam HTTP autenticado. O coordenador não carrega o modelo completo na inferência.
 
 ## Estrutura base

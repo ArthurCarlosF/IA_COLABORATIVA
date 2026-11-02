@@ -45,3 +45,7 @@ JavaScript da interface passou em `node --check`. A autorização para abrir htt
 A demonstração anterior com duas contas executou contribuição real em ambas as direções: local-user consumiu 17 e ganhou 4,5; peer-user consumiu 9 e ganhou 8,5. Carteiras e cadeia íntegras, sem dinheiro ou créditos inventados. A demonstração foi reiniciada com a revisão final em localhost:8300; consultar runtime/simulation/latest.json para a pasta e report.json desta execução.
 
 Limites: continua sendo um coordenador/banco local, identidades autorizadas e tiny-gpt2. Rede pública, consenso, remuneração por ociosidade, privacidade contra workers hostis, fila justa distribuída e qualidade de um assistente de programação não foram implementados. O valor diário não garante horas de uso. Não foram realizados testes físicos entre máquinas nem uma espera real até a meia-noite: fronteira de horário testada com relógio injetado no motor contábil, explicitamente sem simular a inferência.
+
+## Apresentação para quem baixar — 02/11/2026
+
+Criado LEIA-ME-PRIMEIRO.txt na raiz com visão, princípios, impacto pretendido, funcionamento, créditos, estado real, validação e próximos desafios. README destaca o arquivo. AGENTS.md exige sua revisão e atualização em toda alteração relevante. Verificação documental executada; não foi necessário repetir testes de código nesta alteração de documentação.

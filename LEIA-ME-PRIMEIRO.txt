@@ -1,0 +1,166 @@
+﻿IA COLABORATIVA
+UMA REDE DE COMPUTADORES PARA TORNAR A INTELIGÊNCIA ARTIFICIAL MAIS ACESSÍVEL
+
+Última atualização: 02/11/2026
+Fase atual: protótipo funcional de inferência distribuída e créditos de contribuição.
+Repositório: https://github.com/ArthurCarlosF/IA_COLABORATIVA
+
+POR QUE ESTE PROJETO EXISTE
+
+Executar uma IA capaz pode exigir mais memória e processamento do que uma pessoa
+possui em seu computador. Ao mesmo tempo, muitos computadores ficam ociosos durante
+horas. A IA Colaborativa nasce da ideia de conectar essas duas realidades: reunir
+recursos de várias pessoas para que elas possam usar, juntas, uma inteligência
+artificial que seria difícil manter individualmente.
+
+A ambição é construir uma infraestrutura cooperativa de IA: gratuita para participar,
+sustentada pela contribuição dos próprios computadores e, no futuro, capaz de se
+organizar sem depender de um servidor central indispensável. Cada participante poderá
+ser usuário e fornecedor de capacidade computacional.
+
+COMO A IDEIA FUNCIONA
+
+Uma única rede neural é dividida em partes. Um computador executa algumas camadas
+do modelo e transmite as ativações intermediárias para outro computador, que continua
+o mesmo cálculo. Esse caminho se repete durante a geração dos tokens da resposta.
+
+Cada worker é um programa que executa a parte atribuída do modelo, utilizando sua
+CPU ou GPU, memória e cache. A RAM e a VRAM permanecem em suas respectivas máquinas;
+a divisão do trabalho permite aproveitar recursos de vários computadores.
+
+Um exemplo do uso pretendido: você vai sair e deixa seu computador contribuindo com
+as tarefas de outras pessoas. Essa contribuição gera créditos de uso. Quando voltar
+a trabalhar em seus projetos, poderá utilizar a capacidade oferecida pelos demais,
+consumindo os créditos que acumulou.
+
+O QUE TORNA ESTA PROPOSTA AMBICIOSA
+
+O objetivo vai além de disponibilizar um chat. A proposta reúne execução neural
+entre máquinas, compartilhamento de recursos, organização de tarefas, reciprocidade,
+verificação de contribuição e uma experiência de trabalho completa com IA.
+
+A experiência desejada inclui projetos, conversas, arquivos, alterações de código,
+terminal, testes, histórico e aprovações, tendo o Codex como referência de interface
+e fluxo de trabalho. Para chegar lá, precisamos desenvolver tanto a infraestrutura
+quanto a integração de ferramentas e a avaliação de modelos abertos capazes.
+
+Se essas etapas forem demonstradas com qualidade, segurança e sustentabilidade, a
+rede poderá ampliar o acesso de pessoas com computadores limitados a ferramentas
+mais capazes. Esse é o potencial que orienta o projeto; sua escala e eficiência
+ainda precisam ser comprovadas por medições e uso real.
+
+PRINCÍPIOS DA REDE
+
+- Gratuidade: não haverá compra ou venda de créditos em dinheiro. Equipamentos,
+  energia elétrica e conexão são recursos fornecidos pelos participantes.
+- Reciprocidade: contribuir com tarefas de outras pessoas gera direito de uso.
+- Acesso inicial: uma franquia diária permite começar mesmo com saldo zero.
+- Justiça: a meta é impedir que um grande saldo monopolize o processamento.
+- Transparência: distinguir funcionalidades entregues, testes executados e metas.
+- Segurança: verificar identidade, mensagens, execução e contabilidade, com proteção
+  de dados e isolamento adequados antes de abrir a rede a participantes hostis.
+- Foco inicial: computadores. Compatibilidade com celulares fica para o futuro.
+
+FRANQUIA E CRÉDITOS IMPLEMENTADOS
+
+A configuração inicial concede 20.000 tokens por dia a cada conta autorizada. A
+franquia renova às 00:00 de America/Sao_Paulo, sem acumular a parte gratuita. Esse
+valor é configurável e ainda precisa ser calibrado com um modelo útil; não garante
+um número fixo de horas de uso.
+
+Entrada e saída consomem tokens. A contribuição para outras contas gera créditos
+extras que não expiram. O valor de cada token completo é dividido entre os workers
+proporcionalmente às camadas executadas, evitando contar o mesmo token inteiro
+várias vezes. Trabalho para a própria conta não gera crédito extra.
+
+Existem reservas antes da geração, liquidação dos passos completos, devolução da
+parte não utilizada e recuperação após reinício. O painel mostra franquia restante,
+renovação, créditos extras, contribuição e extrato. Não há pagamentos ou transferências.
+
+O QUE JÁ FUNCIONA
+
+- Modelo real GPT-2 pequeno particionado entre workers.
+- Execução de camadas, transmissão de ativações e KV cache por worker.
+- Coordenador com registro, validação de partições e monitoramento dos computadores.
+- Chat web com geração e envio progressivo da resposta.
+- Autenticação, validação de mensagens e HTTPS nas conexões remotas dos serviços.
+- Contas distintas, franquia diária e créditos por contribuição real.
+- Histórico contábil encadeado e verificação da consistência dos saldos e reservas.
+- Demonstração com dois processos worker, IPs loopback distintos e pastas próprias
+  no mesmo computador, representando dois hosts lógicos.
+
+VALIDAÇÃO JÁ EXECUTADA
+
+A suíte mais recente passou em 43 testes, incluindo inferência real em HTTP e HTTPS,
+comparação com execução local, contribuição entre contas, esgotamento da franquia,
+gasto de extras, cancelamento, falhas, recuperação e regras de renovação diária.
+
+Na comparação incremental de oito passos, o erro máximo dos logits foi zero. Os
+testes de fronteira da meia-noite usam um relógio controlado no motor contábil;
+a execução neural dos testes de integração é real.
+
+A interface inicial foi utilizada no navegador em etapas anteriores. A nova versão
+do painel de franquia passou na checagem sintática do JavaScript, mas sua conferência
+visual no navegador ficou pendente por recusa da autorização da ferramenta. Consulte
+TEST_RESULTS.md para o registro completo e atualizado.
+
+O QUE AINDA PRECISA SER CONSTRUÍDO OU VALIDADO
+
+A versão atual depende de um coordenador e de um banco local, com contas autorizadas.
+A execução entre dois computadores físicos ainda precisa ser validada. O checkpoint
+usado é tiny-gpt2: ele comprova o funcionamento da divisão neural, mas produz texto
+repetitivo e não oferece qualidade de assistente de programação.
+
+As próximas etapas incluem modelos úteis, testes em hardware físico, desempenho em
+redes reais, distribuição automática, fila justa para múltiplos usuários, redundância,
+recuperação e uma interface completa de trabalho.
+
+A descentralização pública também exige descoberta de participantes, consenso de
+créditos, proteção contra identidades falsas e conluio, verificação de execução e
+privacidade diante de workers maliciosos. Modelos podem auxiliar a defesa, mas não
+substituem regras verificáveis de segurança e contabilidade.
+
+Remunerar memória ociosa é uma meta futura: será necessário comprovar disponibilidade
+útil e impedir dupla contagem de recursos. Anunciar memória, sozinho, não gera créditos.
+
+Distribuir um modelo pode permitir que ele caiba no conjunto de computadores, mas
+não garante que fique mais rápido: conexão, transmissão de ativações e o estágio mais
+lento podem limitar a rede. Esses limites precisam orientar o desenvolvimento.
+
+PARA QUEM ESTÁ BAIXANDO AGORA
+
+Este repositório é uma base funcional de pesquisa e desenvolvimento. Comece pelo
+README.md para instalação, configuração e execução. Modelos, ambiente virtual,
+configurações privadas, bancos, certificados e tokens de acesso não acompanham o Git.
+O procedimento de preparação dos pesos está documentado.
+
+A demonstração com dois hosts lógicos está em SIMULATION.md. A opção --credits-demo
+do lançador permite conferir contribuição e consumo entre duas contas. Não publique
+as configurações ou os segredos gerados localmente.
+
+MAPA DA DOCUMENTAÇÃO
+
+README.md              Instalação e primeiros passos.
+ARCHITECTURE.md        Como a implementação funciona.
+ROADMAP.md             Etapas entregues e próximas metas.
+PROGRESS.md            Histórico do progresso.
+TEST_RESULTS.md        Resultados reais e verificações pendentes.
+NEXT_STEPS.md          Como continuar o desenvolvimento.
+SECURITY.md            Proteções atuais e limitações.
+DEPLOY_LAN.md          Preparação para dois computadores físicos.
+SIMULATION.md          Dois workers no mesmo computador.
+docs/PREMISES.md       Objetivo, decisões e premissas.
+docs/CREDIT_PLAN.md    Plano detalhado de franquia e contribuição.
+AGENTS.md              Regras de trabalho e manutenção da documentação.
+
+COMPROMISSO DE ATUALIZAÇÃO
+
+Este arquivo é a apresentação principal para quem baixar o projeto. Deve ser revisado
+em toda alteração relevante de objetivo, arquitetura, funcionalidades, créditos,
+segurança, instalação ou resultados de validação. A data, a fase atual e a separação
+entre o que funciona e o que é futuro precisam permanecer corretas.
+
+A dimensão desta proposta está no objetivo de construir, em conjunto, uma
+infraestrutura de IA que cada participante ajude a sustentar e da qual também possa
+se beneficiar. O caminho até essa visão deve ser percorrido com implementação real,
+medições, segurança e documentação honesta em cada etapa.

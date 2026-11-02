@@ -27,3 +27,5 @@ Leia docs/CREDIT_PLAN.md. Funcionalidade implementada e validada com 43 testes; 
 Iniciar demonstração: `.venv/Scripts/python tools/simulate_hosts.py --credits-demo --port 8300 --serve`. Caminho de configuração e relatório em runtime/simulation/latest.json. user_token autentica local-user; accounts.peer-user autentica peer-user. Não publicar esses tokens nem copiar config para o Git. A versão antiga em localhost:8000/8200, se ainda ativa, pode não conter o painel atualizado.
 
 Continuar com avaliação visual autorizada, fila justa, identidade pública/consenso e modelo pequeno instruído. Não ativar remuneração por memória anunciada nem cadastro público sem verificação contra fraude. Não vender créditos: decisão explícita do usuário.
+
+Ao continuar, leia também LEIA-ME-PRIMEIRO.txt e mantenha-o atualizado na mesma alteração de qualquer mudança relevante, conforme AGENTS.md.
