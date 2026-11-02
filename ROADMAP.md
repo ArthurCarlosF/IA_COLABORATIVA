@@ -15,7 +15,7 @@
 - Validar CUDA e execução mista CPU/GPU quando hardware permitir.
 
 ## Etapa 3 — qualidade e escala
-- Adaptador Llama/Qwen pequeno instruído; validação numérica por arquitetura.
+- Entregue: adaptador Qwen2, checkpoint Qwen2.5-Coder-0.5B-Instruct e validação inicial de código/números.
 - Alocação automática segundo memória real e benchmark, distribuição segura dos pesos.
 - Protocolos binários compactos, geração concorrente, batching e cancelamento testado sob carga.
 - Rebalanceamento entre requisições e recuperação com recomputação de KV.
@@ -33,3 +33,13 @@
 - Reservas, saldo insuficiente, cancelamento, recuperação e extrato privado auditável.
 - Painel de uso com tokens restantes, contribuição e créditos extras.
 - Próximos estágios: fila justa, prova de disponibilidade, identidade pública, consenso e modelos úteis.
+
+## Evolução funcional — 02/11/2026
+- Entregue: Qwen de programação dividido em 24 camadas, RoPE/GQA e chat template.
+- Entregue: turnos por conta, prefill limitado, limpeza em desconexão precoce.
+- Entregue: descoberta gossip assinada com múltiplos contatos e identidades autorizadas, sem diretório central obrigatório.
+- Entregue: assinaturas individuais de comandos e recibos no modo P2P autorizado.
+- Entregue: arquivos privados, revisão/diff, verificação sintática e unittest em Docker restrito e opt-in.
+- Bloqueado por hardware ausente: validação entre dois computadores físicos e GPUs.
+- Pendente de projeto/validação: consenso público, anti-Sybil/conluio, prova de execução, privacidade contra workers hostis, DHT/NAT, escalonamento global, carga em escala e agente completo de programação.
+- Leia docs/FUNCTIONAL_STATUS.md; não confundir descoberta descentralizada com contabilidade descentralizada.

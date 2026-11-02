@@ -12,18 +12,21 @@ from pathlib import Path
 import httpx
 from fastapi import FastAPI,HTTPException,Request
 from fastapi.responses import HTMLResponse,StreamingResponse
+from starlette.background import BackgroundTask
 from pydantic import BaseModel,Field,ValidationError,ConfigDict
 from transformers import AutoTokenizer
 from .ledger import Ledger
 from .credits import Wallet,InsufficientCredits
-from .protocol import authenticated,encode,headers,unpack
+from .scheduler import FairScheduler,CapacityError
+from .identity import signed_headers,verify_sender,verify_result,peer_for_endpoint
+from .protocol import authenticated,encode,headers,unpack,checkpoint_hash
 
 class Chat(BaseModel):
     model_config=ConfigDict(extra='forbid')
     prompt:str=Field(min_length=1,max_length=4096)
     max_tokens:int=Field(default=32,ge=1,le=128)
 
-def create_coordinator(root,secret,user_token,allowed,db_path,verify=True,accounts=None,worker_owners=None,daily_tokens=20000,credit_timezone='America/Sao_Paulo'):
+def create_coordinator(root,secret,user_token,allowed,db_path,verify=True,accounts=None,worker_owners=None,daily_tokens=20000,credit_timezone='America/Sao_Paulo',peer_network=None,coordinator_url=None,workspace_root='runtime/workspaces',sandbox_image=None):
     root=Path(root)
     manifest=json.loads((root/'manifest.json').read_text())
     tokenizer=AutoTokenizer.from_pretrained(root/'tokenizer',local_files_only=True)
@@ -31,7 +34,7 @@ def create_coordinator(root,secret,user_token,allowed,db_path,verify=True,accoun
         raise ValueError('Configure exatamente um worker por partição')
     assignments={worker_id:manifest['parts'][i] for i,worker_id in enumerate(allowed)}
     nodes={}
-    gate=asyncio.Lock()
+    scheduler=FairScheduler()
     identities={'local-user':user_token,**(accounts or {})}
     if any(not re.fullmatch(r'[A-Za-z0-9_.-]{1,64}',user) or not isinstance(token,str) or len(token)<32 for user,token in identities.items()):
         raise ValueError('Identidades ou tokens inválidos')
@@ -45,17 +48,29 @@ def create_coordinator(root,secret,user_token,allowed,db_path,verify=True,accoun
     ledger=Ledger(db_path)
     wallet=Wallet(ledger,daily_tokens,credit_timezone)
     wallet.recover()
-    metrics=dict(requests=0,failures=0,tokens=0,last_seconds=0,tokens_per_second=0)
-    fingerprints={s['index']:hashlib.sha256((root/f"part-{s['index']}"/'weights.pt').read_bytes()).hexdigest() for s in manifest['parts']}
-    client=httpx.AsyncClient(timeout=20,verify=verify,trust_env=False)
+    metrics=dict(requests=0,failures=0,tokens=0,last_seconds=0,tokens_per_second=0,network_retries=0)
+    fingerprints={s['index']:checkpoint_hash(root/f"part-{s['index']}"/'weights.pt') for s in manifest['parts']}
+    client=httpx.AsyncClient(timeout=20,verify=verify,trust_env=False,limits=httpx.Limits(keepalive_expiry=1))
+
+    identity=json.loads(Path(peer_network['identity_files']['coordinator']).read_text()) if peer_network else None
+    gossip=None
 
     @asynccontextmanager
     async def lifespan(app):
+        if gossip:gossip.start()
         yield
+        if gossip:gossip.close()
         await client.aclose()
     app=FastAPI(lifespan=lifespan,docs_url=None,redoc_url=None,openapi_url=None)
+    if peer_network:
+        from .discovery import attach
+        gossip=attach(app,peer_network['identity_files']['coordinator'],coordinator_url,peer_network['trusted'],peer_network.get('seeds',[]),dict(role='requester',model=manifest['model'],revision=manifest['revision']),verify,Path(db_path).parent/'peers.json')
+    from .workspace import Workspace,RevisionConflict
+    workspace=Workspace(workspace_root)
+    test_gate=asyncio.Semaphore(1)
     app.state.ledger=ledger
     app.state.wallet=wallet
+    app.state.rpc_client=client
 
     def auth(request):
         value=request.headers.get('authorization','')
@@ -69,9 +84,20 @@ def create_coordinator(root,secret,user_token,allowed,db_path,verify=True,accoun
 
     async def rpc(node,path,message):
         body=encode(message)
-        response=await client.post(node['url']+path,content=body,headers=headers(secret,body))
-        response.raise_for_status()
-        return response.json()
+        for attempt in range(2):
+            try:
+                response=await client.post(node['url']+path,content=body,headers=signed_headers(secret,body,path,identity))
+                response.raise_for_status()
+                result=response.json()
+                if peer_network and path=='/step':
+                    try:verify_result(result,message,peer_for_endpoint(peer_network['trusted'],node['url']))
+                    except Exception:raise ValueError('Recibo individual do worker inválido')
+                return result
+            except (httpx.RemoteProtocolError,httpx.ReadError,httpx.ConnectError,httpx.ReadTimeout):
+                if attempt:raise
+                metrics['network_retries']+=1
+                # O worker aceita somente repetição idêntica do último passo.
+                # Nova assinatura temporal, mesmo corpo: sem novo cálculo ou débito.
 
     class SecurityHeaders:
         def __init__(self,app):
@@ -99,6 +125,9 @@ def create_coordinator(root,secret,user_token,allowed,db_path,verify=True,accoun
             index=message['spec']['index']
             if allowed.get(worker_id)!=message['url']:
                 raise HTTPException(403,'Worker ou endereço não permitido')
+            if peer_network:
+                try:verify_sender(request,message,peer_for_endpoint(peer_network['trusted'],message['url']))
+                except Exception:raise HTTPException(401,'Assinatura individual do worker inválida')
             if type(index) is not int or index<0 or index>=len(manifest['parts']):
                 raise ValueError('Invalid partition')
             if message['spec']!=assignments[worker_id]:
@@ -116,7 +145,7 @@ def create_coordinator(root,secret,user_token,allowed,db_path,verify=True,accoun
     async def status(request:Request):
         user=auth(request)
         rows=[dict(id=k,url=n['url'],spec=n['spec'],resources=n['resources'],online=time.monotonic()-n['seen']<8) for k,n in nodes.items()]
-        return dict(model=manifest['model'],revision=manifest['revision'],nodes=rows,metrics=metrics,busy=gate.locked(),required_parts=len(manifest['parts']),assignments=assignments,ledger_valid=ledger.verify(),usage=wallet.snapshot(user))
+        return dict(model=manifest['model'],revision=manifest['revision'],nodes=rows,metrics=metrics,busy=bool(scheduler.active),scheduler=scheduler.status(),required_parts=len(manifest['parts']),assignments=assignments,ledger_valid=ledger.verify(),usage=wallet.snapshot(user))
 
     @app.get('/api/usage')
     async def usage(request:Request):
@@ -130,6 +159,57 @@ def create_coordinator(root,secret,user_token,allowed,db_path,verify=True,accoun
         audit=wallet.audit(user)
         return dict(valid=ledger.verify() and audit['valid'],entries=entries,unit='token-layer',payments=False,
                     usage=wallet.snapshot(user),wallet=audit)
+
+    @app.get('/api/peers')
+    async def peers(request:Request):
+        auth(request)
+        if not gossip:return dict(mode='disabled',records=[])
+        return dict(mode='signed-permissioned-gossip',records=gossip.directory.snapshot(),stats=gossip.directory.stats)
+
+    @app.get('/api/workspace/files')
+    async def files(request:Request):
+        return dict(files=workspace.listing(auth(request)),container_tests=bool(sandbox_image))
+
+    @app.get('/api/workspace/file')
+    async def read_file(request:Request,path:str):
+        user=auth(request)
+        try:return workspace.read(user,path)
+        except FileNotFoundError:raise HTTPException(404,'Arquivo não encontrado')
+        except ValueError as exc:raise HTTPException(422,str(exc))
+
+    async def bounded_json(request,limit=800000):
+        body=bytearray()
+        async for chunk in request.stream():
+            body.extend(chunk)
+            if len(body)>limit:raise HTTPException(413,'Mensagem excede limite')
+        try:return json.loads(body)
+        except ValueError:raise HTTPException(422,'JSON inválido')
+
+    @app.post('/api/workspace/file')
+    async def save_file(request:Request):
+        user=auth(request)
+        data=await bounded_json(request)
+        if not isinstance(data,dict) or set(data)-{'path','content','base_revision'}:raise HTTPException(422,'Campos inválidos')
+        try:return workspace.write(user,data['path'],data['content'],data.get('base_revision'))
+        except RevisionConflict as exc:raise HTTPException(409,str(exc))
+        except (KeyError,ValueError) as exc:raise HTTPException(422,str(exc))
+
+    @app.post('/api/workspace/check')
+    async def check_file(request:Request):
+        user=auth(request)
+        data=await bounded_json(request,4096)
+        try:return workspace.check(user,data['path'])
+        except FileNotFoundError:raise HTTPException(404,'Arquivo não encontrado')
+        except (KeyError,ValueError,TypeError) as exc:raise HTTPException(422,str(exc))
+
+    @app.post('/api/workspace/tests')
+    async def run_tests(request:Request):
+        user=auth(request)
+        if not sandbox_image:raise HTTPException(503,'Testes em container desativados; configure sandbox_image com imagem local aprovada')
+        if test_gate.locked():raise HTTPException(429,'Executor de testes ocupado')
+        async with test_gate:
+            try:return await asyncio.to_thread(workspace.run_tests,user,sandbox_image)
+            except (ValueError,RuntimeError) as exc:raise HTTPException(503,str(exc))
 
     @app.post('/api/chat')
     async def chat(request:Request):
@@ -147,26 +227,37 @@ def create_coordinator(root,secret,user_token,allowed,db_path,verify=True,accoun
             query=Chat.model_validate_json(b''.join(chunks))
         except ValidationError:
             raise HTTPException(422,'Prompt ou limite de tokens inválido')
-        if gate.locked():
-            raise HTTPException(429,'Inferência ocupada; aguarde')
-        await gate.acquire()
+        sid=uuid.uuid4().hex
+        try:scheduler.admit(user,sid)
+        except CapacityError as exc:raise HTTPException(429,str(exc))
         pipeline=sorted([dict(n) for n in nodes.values() if time.monotonic()-n['seen']<8],key=lambda n:n['spec']['index'])
         if [n['spec']['index'] for n in pipeline]!=list(range(len(manifest['parts']))):
-            gate.release()
+            scheduler.leave(user,sid)
             raise HTTPException(503,'Conecte todos os workers necessários')
-        ids=tokenizer.encode(query.prompt)
+        ids=tokenizer.apply_chat_template([dict(role='user',content=query.prompt)],tokenize=True,add_generation_prompt=True) if tokenizer.chat_template else tokenizer.encode(query.prompt)
         if len(ids)+query.max_tokens>512:
-            gate.release()
+            scheduler.leave(user,sid)
             raise HTTPException(422,'Contexto máximo: 512 tokens incluindo resposta')
-        sid=uuid.uuid4().hex
         try:
             output_budget=wallet.reserve(sid,user,len(ids),query.max_tokens)
         except InsufficientCredits as exc:
-            gate.release()
+            scheduler.leave(user,sid)
             raise HTTPException(402,dict(code='insufficient_tokens',message=str(exc),usage=wallet.snapshot(user)))
         except Exception:
-            gate.release()
+            scheduler.leave(user,sid)
             raise
+
+        cleanup_done=False
+        async def finish():
+            nonlocal cleanup_done
+            if cleanup_done:return
+            cleanup_done=True
+            try:
+                with anyio.CancelScope(shield=True):
+                    await asyncio.gather(*(rpc(n,'/release',dict(session=sid)) for n in pipeline),return_exceptions=True)
+            finally:
+                try:wallet.release(sid)
+                finally:scheduler.leave(user,sid)
 
         async def generate():
             import torch
@@ -183,22 +274,35 @@ def create_coordinator(root,secret,user_token,allowed,db_path,verify=True,accoun
                     if await request.is_disconnected():
                         break
                     length=value['shape'][1]
-                    completed=[]
-                    for node in pipeline:
-                        reply=await rpc(node,'/step',dict(session=sid,position=position,tensor=value))
-                        expected=position+length
-                        if reply['position']!=expected or reply['units']!=length*(node['spec']['end']-node['spec']['start']):
-                            raise ValueError('Resposta inconsistente do worker')
-                        if not isinstance(reply.get('seconds'),(float,int)) or not math.isfinite(reply['seconds']) or reply['seconds']<0:
-                            raise ValueError('Duração inválida do worker')
-                        completed.append((node,reply))
-                        value=reply['tensor']
+                    # Prefill em fatias limita o tempo exclusivo de uma entrada grande.
+                    input_ids=ids if iteration==0 else [generated[-1]]
+                    chunks=[input_ids[i:i+32] for i in range(0,len(input_ids),32)]
+                    total_units={node['id']:0 for node in pipeline}
+                    total_seconds={node['id']:0.0 for node in pipeline}
+                    proofs={node['id']:[] for node in pipeline}
+                    for chunk in chunks:
+                        async with scheduler.turn(user,request.is_disconnected):
+                            if await request.is_disconnected():raise asyncio.CancelledError()
+                            value=pack(torch.tensor([chunk],dtype=torch.long))
+                            for node in pipeline:
+                                reply=await rpc(node,'/step',dict(session=sid,position=position,tensor=value))
+                                expected=position+len(chunk)
+                                if reply['position']!=expected or reply['units']!=len(chunk)*(node['spec']['end']-node['spec']['start']):
+                                    raise ValueError('Resposta inconsistente do worker')
+                                if not isinstance(reply.get('seconds'),(float,int)) or not math.isfinite(reply['seconds']) or reply['seconds']<0:
+                                    raise ValueError('Duração inválida do worker')
+                                if reply.get('proof'):proofs[node['id']].append(reply['proof'])
+                                total_units[node['id']]+=reply['units']
+                                total_seconds[node['id']]+=reply['seconds']
+                                value=reply['tensor']
+                            position+=len(chunk)
+                    completed=[(node,dict(units=total_units[node['id']],seconds=total_seconds[node['id']],proofs=proofs[node['id']])) for node in pipeline]
                     logits=unpack(value)
-                    if list(logits.shape)!=[1,1,tokenizer.vocab_size]:raise ValueError('Logits inválidos')
+                    if list(logits.shape)!=[1,1,manifest.get('vocab_size',tokenizer.vocab_size)]:raise ValueError('Logits inválidos')
                     cost=len(ids)+1 if iteration==0 else 1
-                    wallet.settle(sid,iteration,cost,[dict(id=node['id'],owner=owners[node['id']],layers=node['spec']['end']-node['spec']['start'],input_tokens=length) for node,_ in completed])
+                    wallet.settle(sid,iteration,cost,[dict(id=node['id'],owner=owners[node['id']],layers=node['spec']['end']-node['spec']['start'],input_tokens=length,receipts=reply['proofs']) for node,reply in completed])
                     for node,reply in completed:
-                        ledger.append(f"{sid}:{iteration}:{node['id']}",user,node['id'],reply['units'],reply['seconds'])
+                        ledger.append(f"{sid}:{iteration}:{node['id']}",user,node['id'],reply['units'],reply['seconds'],proof=reply['proofs'])
                     token=int(logits[0,-1].argmax())
                     if token==tokenizer.eos_token_id:
                         break
@@ -207,7 +311,6 @@ def create_coordinator(root,secret,user_token,allowed,db_path,verify=True,accoun
                     count+=1
                     metrics['tokens']+=1
                     yield 'data: '+json.dumps(dict(type='token',text=text,token=token,usage=wallet.snapshot(user)),ensure_ascii=False)+'\n\n'
-                    position+=length
                     value=pack(torch.tensor([[token]],dtype=torch.long))
                 elapsed=time.perf_counter()-started
                 metrics.update(last_seconds=elapsed,tokens_per_second=count/max(elapsed,1e-9))
@@ -217,13 +320,6 @@ def create_coordinator(root,secret,user_token,allowed,db_path,verify=True,accoun
                 metrics['failures']+=1
                 yield 'data: '+json.dumps(dict(type='error',message='Falha no worker; geração interrompida. '+type(exc).__name__))+'\n\n'
             finally:
-                try:
-                    with anyio.CancelScope(shield=True):
-                        await asyncio.gather(*(rpc(n,'/release',dict(session=sid)) for n in pipeline),return_exceptions=True)
-                finally:
-                    try:
-                        wallet.release(sid)
-                    finally:
-                        gate.release()
-        return StreamingResponse(generate(),media_type='text/event-stream',headers={'X-Accel-Buffering':'no'})
+                await finish()
+        return StreamingResponse(generate(),media_type='text/event-stream',headers={'X-Accel-Buffering':'no'},background=BackgroundTask(finish))
     return app

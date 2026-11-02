@@ -60,3 +60,8 @@ async def authenticated(request:Request,secret):
         return json.loads(body)
     except (ValueError,UnicodeError):
         raise HTTPException(422,'Invalid JSON')
+
+
+def checkpoint_hash(path):
+    with open(path,'rb') as handle:
+        return hashlib.file_digest(handle,'sha256').hexdigest()

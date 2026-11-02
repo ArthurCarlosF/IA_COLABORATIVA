@@ -82,3 +82,28 @@ def test_remote_http_refused(tmp_path,monkeypatch):
     config.write_text(json.dumps(dict(cluster_secret='s'*64,user_token='u'*64,coordinator='http://192.0.2.1:8000',workers={})))
     monkeypatch.setattr('sys.argv',['mesh','coordinator','--config',str(config)])
     with pytest.raises(SystemExit,match='HTTPS'):main()
+
+
+def test_worker_retries_return_cached_real_result(monkeypatch):
+    from pathlib import Path
+    from mesh.worker import create_worker
+    root=Path(__file__).resolve().parents[1]/'data/model/part-0'
+    app=create_worker(root,'w','secret','http://127.0.0.1:1','http://127.0.0.1:2')
+    original=app.state.shard.step
+    calls=[]
+    def counted(*args,**kwargs):
+        calls.append(1)
+        return original(*args,**kwargs)
+    monkeypatch.setattr(app.state.shard,'step',counted)
+    client=TestClient(app)
+    message=dict(session='c'*32,position=0,tensor=pack(torch.tensor([[1]])))
+    body=encode(message)
+    first=client.post('/step',content=body,headers=headers('secret',body))
+    retry=client.post('/step',content=body,headers=headers('secret',body))
+    assert first.status_code==retry.status_code==200
+    assert first.json()==retry.json() and len(calls)==1
+    assert app.state.sessions['c'*32]['position']==1
+    message['tensor']=pack(torch.tensor([[2]]))
+    changed=encode(message)
+    assert client.post('/step',content=changed,headers=headers('secret',changed)).status_code==409
+    assert len(calls)==1

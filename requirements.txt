@@ -6,3 +6,4 @@ httpx==0.28.1
 psutil==7.0.0
 pytest==9.2.0
 tzdata>=2024.1
+cryptography==42.0.8

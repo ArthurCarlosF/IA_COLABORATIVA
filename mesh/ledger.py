@@ -13,8 +13,8 @@ class Ledger:
         self.db.execute('CREATE TABLE IF NOT EXISTS entries (seq INTEGER PRIMARY KEY, event TEXT NOT NULL, previous TEXT NOT NULL, hash TEXT NOT NULL, receipt TEXT UNIQUE NOT NULL)')
         self.db.commit()
 
-    def append(self,receipt,user,worker,units,seconds):
-        event=json.dumps(dict(receipt=receipt,user=user,worker=worker,units=units,seconds=seconds,time=time.time(),debit=-units,credit=units),sort_keys=True,separators=(',',':'))
+    def append(self,receipt,user,worker,units,seconds,proof=None):
+        event=json.dumps(dict(receipt=receipt,user=user,worker=worker,units=units,seconds=seconds,time=time.time(),debit=-units,credit=units,proof=proof),sort_keys=True,separators=(',',':'))
         with self.lock, self.db:
             previous=self.db.execute('SELECT hash FROM entries ORDER BY seq DESC LIMIT 1').fetchone()
             previous=previous[0] if previous else '0'*64

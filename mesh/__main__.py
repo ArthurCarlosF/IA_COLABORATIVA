@@ -8,7 +8,7 @@ import uvicorn
 
 def main():
     parser=argparse.ArgumentParser(description='Inferência GPT-2 por camadas distribuídas')
-    parser.add_argument('command',choices=['prepare','init','coordinator','worker'])
+    parser.add_argument('command',choices=['prepare','init','coordinator','worker','peer-key'])
     parser.add_argument('--root',default='data/model')
     parser.add_argument('--config',default='runtime/config.json')
     parser.add_argument('--model',default='sshleifer/tiny-gpt2')
@@ -23,8 +23,18 @@ def main():
     parser.add_argument('--cert')
     parser.add_argument('--key')
     parser.add_argument('--ca')
+    parser.add_argument('--identity',default='runtime/identity.json')
     args=parser.parse_args()
     os.environ.setdefault("HF_HOME",str(Path("data/hf").resolve()))
+    if args.command=='peer-key':
+        from .discovery import new_identity
+        path=Path(args.identity)
+        if path.exists():raise SystemExit('Identidade já existe; não sobrescrita')
+        path.parent.mkdir(parents=True,exist_ok=True)
+        identity=new_identity()
+        path.write_text(json.dumps(identity,indent=2),encoding='utf8')
+        print('Identidade criada:',identity['peer_id'],'em',path)
+        return
     if args.command=='prepare':
         from .model import prepare
         capacities=[int(float(x)*1048576) for x in args.memory_mb.split(',')] if args.memory_mb else None
@@ -58,11 +68,11 @@ def main():
     Path('runtime').mkdir(exist_ok=True)
     if args.command=='coordinator':
         from .coordinator import create_coordinator
-        app=create_coordinator(args.root,config['cluster_secret'],config['user_token'],config['workers'],'runtime/credits.sqlite',verify,accounts=config.get('accounts'),worker_owners=config.get('worker_owners'),daily_tokens=config.get('daily_tokens',20000),credit_timezone=config.get('credit_timezone','America/Sao_Paulo'))
+        app=create_coordinator(args.root,config['cluster_secret'],config['user_token'],config['workers'],'runtime/credits.sqlite',verify,accounts=config.get('accounts'),worker_owners=config.get('worker_owners'),daily_tokens=config.get('daily_tokens',20000),credit_timezone=config.get('credit_timezone','America/Sao_Paulo'),peer_network=config.get('peer_network'),coordinator_url=config['coordinator'],sandbox_image=config.get('sandbox_image'))
         port=args.port or 8000
     else:
         from .worker import create_worker
-        app=create_worker(Path(args.root)/f'part-{args.part}',args.id,config['cluster_secret'],config['coordinator'],config['workers'][args.id],verify,args.device)
+        app=create_worker(Path(args.root)/f'part-{args.part}',args.id,config['cluster_secret'],config['coordinator'],config['workers'][args.id],verify,args.device,config.get('peer_network'))
         port=args.port or 8100+args.part
     uvicorn.run(app,host=args.host,port=port,ssl_certfile=args.cert,ssl_keyfile=args.key,access_log=False)
 

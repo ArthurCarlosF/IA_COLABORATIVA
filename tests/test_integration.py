@@ -301,3 +301,87 @@ def test_08_daily_exhaustion_and_real_extra_spending(cluster):
     assert after['extra_reserved']==0
     assert c['client'].get(url+'/api/credits',headers=peer).json()['valid']
     REPORT['quota_exhaustion']=dict(zero_balance_http=402,output_clipped=True,extra_spent=2)
+
+
+def test_09_other_account_progresses_before_large_task_finishes(cluster):
+    c=cluster
+    url=c['config']['coordinator']
+    peer={'Authorization':'Bearer '+'p'*64}
+    baseline=c['client'].get(url+'/api/status',headers=c['auth']).json()['metrics']['tokens']
+    with c['client'].stream('POST',url+'/api/chat',headers=c['auth'],json=dict(prompt='Hello',max_tokens=64)) as response:
+        assert response.status_code==200
+        for line in response.iter_lines():
+            if line.startswith('data: '):break
+        other=c['client'].post(url+'/api/chat',headers=peer,json=dict(prompt='Hello',max_tokens=2))
+        assert other.status_code==200 and '"type": "done"' in other.text
+        state=c['client'].get(url+'/api/status',headers=c['auth']).json()
+        assert state['metrics']['tokens']-baseline<66
+        assert state['scheduler']['policy']=='round-robin-by-account'
+    deadline=time.monotonic()+10
+    while time.monotonic()<deadline:
+        state=c['client'].get(url+'/api/status',headers=c['auth']).json()
+        if not state['busy']:break
+        time.sleep(.1)
+    assert not state['busy']
+    REPORT['fairness']='second account completed while first account had an unfinished 64-token request'
+
+
+def test_10_private_workspace_api(cluster):
+    c=cluster
+    url=c['config']['coordinator']
+    peer={'Authorization':'Bearer '+'p'*64}
+    saved=c['client'].post(url+'/api/workspace/file',headers=c['auth'],json=dict(path='src/add.py',content='def add(a,b):\n    return a+b\n'))
+    assert saved.status_code==200 and saved.json()['diff']
+    assert c['client'].get(url+'/api/workspace/file',headers=peer,params={'path':'src/add.py'}).status_code==404
+    assert c['client'].post(url+'/api/workspace/file',headers=c['auth'],json=dict(path='../outside.py',content='x')).status_code==422
+    assert c['client'].post(url+'/api/workspace/file',headers=c['auth'],json=dict(path='src/add.py',content='x')).status_code==409
+    result=c['client'].post(url+'/api/workspace/check',headers=c['auth'],json=dict(path='src/add.py'))
+    assert result.status_code==200 and result.json()['ok']
+    assert c['client'].post(url+'/api/workspace/tests',headers=c['auth'],json={}).status_code==503
+    REPORT['workspace']='private read/write, conflict detection, traversal denial and Python syntax check passed'
+
+
+def test_11_disconnect_before_first_token_releases_reservation(cluster):
+    c=cluster
+    url=c['config']['coordinator']
+    with c['client'].stream('POST',url+'/api/chat',headers=c['auth'],json=dict(prompt='Hello',max_tokens=32)) as response:
+        assert response.status_code==200
+    deadline=time.monotonic()+10
+    while time.monotonic()<deadline:
+        state=c['client'].get(url+'/api/status',headers=c['auth']).json()
+        if not state['busy']:break
+        time.sleep(.1)
+    assert not state['busy']
+    assert state['usage']['daily_reserved']==0 and state['usage']['extra_reserved']==0
+
+
+def test_12_lost_reply_after_real_worker_execution_is_not_double_billed(cluster,tmp_path,monkeypatch):
+    from fastapi.testclient import TestClient
+    from mesh.coordinator import create_coordinator
+    from mesh.protocol import checkpoint_hash
+    c=cluster
+    verification=ssl.create_default_context(cafile=str(c['directory']/'test-cert.pem')) if c['scheme']=='https' else True
+    app=create_coordinator(MODEL_ROOT,c['config']['cluster_secret'],'z'*64,c['config']['workers'],tmp_path/'retry.db',verification,workspace_root=tmp_path/'files')
+    original=app.state.rpc_client.post
+    dropped=[]
+    async def flaky(url,*args,**kwargs):
+        response=await original(url,*args,**kwargs)
+        if url.endswith('/step') and not dropped:
+            dropped.append(response.json())
+            raise httpx.RemoteProtocolError('Injected lost reply after actual neural computation')
+        return response
+    monkeypatch.setattr(app.state.rpc_client,'post',flaky)
+    auth={'Authorization':'Bearer '+'z'*64}
+    manifest=json.loads((MODEL_ROOT/'manifest.json').read_text())
+    with TestClient(app) as client:
+        for index in range(2):
+            message=dict(id=f'worker-{index}',url=c['config']['workers'][f'worker-{index}'],spec=manifest['parts'][index],fingerprint=checkpoint_hash(MODEL_ROOT/f'part-{index}'/'weights.pt'),resources=rpc(c,index,'/status',{})['resources'])
+            body=encode(message)
+            assert client.post('/internal/register',content=body,headers=headers(c['config']['cluster_secret'],body)).status_code==200
+        response=client.post('/api/chat',headers=auth,json=dict(prompt='Hello',max_tokens=2))
+        assert response.status_code==200 and '"type": "done"' in response.text
+        status=client.get('/api/status',headers=auth).json()
+        assert status['metrics']['network_retries']==1 and len(dropped)==1
+        assert status['usage']['spent_total']==3
+        assert status['usage']['daily_reserved']==0
+        assert len(client.get('/api/credits',headers=auth).json()['entries'])==4

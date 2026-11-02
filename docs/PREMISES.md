@@ -33,6 +33,8 @@ Foco atual: computadores. Compatibilidade móvel fica adiada.
 
 ## Estado real da base
 
-Implementado: GPT-2 pequeno dividido em camadas, coordenador único, workers CPU (opção CUDA não validada), cache KV, streaming, recursos, autenticação e livro SQLite com cadeia de hashes, contas, franquia diária, reservas e créditos por contribuição. Testado entre processos separados e entre dois hosts lógicos loopback com IPs distintos.
+Implementados: GPT-2 e Qwen2 particionados, Qwen2.5-Coder-0.5B-Instruct com tarefa inicial de código validada, cache, chat template, streaming, recursos, contas, franquia diária e contribuição. Há turnos por conta no coordenador, arquivos privados, revisão/diff e testes Python em Docker opt-in.
 
-Ainda não implementado: rede P2P sem coordenador obrigatório, consenso distribuído, proteção contra identidades falsas, provas de execução, disponibilidade remunerada, múltiplos usuários com fila justa e uma interface completa semelhante ao Codex. O modelo tiny-gpt2 valida a execução distribuída; não oferece qualidade conversacional útil.
+A descoberta entre pares autorizados usa gossip assinado e resistiu à perda do contato inicial. No modo P2P, comandos e recibos também têm assinaturas individuais. Identidade/recibo não são prova neural nem consenso.
+
+Pendente: execução física entre máquinas (sem segundo host disponível), desempenho em escala/GPU, descoberta pública/DHT/NAT, alocação automática, recuperação em outro worker, consenso distribuído dos créditos, proteção contra Sybil/conluio e privacidade em workers hostis. A fila é local a cada solicitante; justiça global e a experiência completa de um agente como Codex seguem em desenvolvimento. Ver docs/FUNCTIONAL_STATUS.md.

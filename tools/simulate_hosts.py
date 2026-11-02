@@ -49,10 +49,17 @@ def stop(child):
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--root',default='data/model')
+    parser.add_argument('--coding-task',action='store_true')
+    parser.add_argument('--reuse-weights',action='store_true',help='Reutilizar arquivos de pesos locais sem copiar GB a cada execução')
+    parser.add_argument('--startup-timeout',type=int,default=180)
+    parser.add_argument('--p2p',action='store_true')
+    parser.add_argument('--sandbox-image',help='ID sha256 de imagem Docker local aprovada')
     parser.add_argument('--serve',action='store_true',help='Manter chat e workers ativos após validar')
     parser.add_argument('--port',type=int,default=8200)
     parser.add_argument('--credits-demo',action='store_true',help='Duas contas e reciprocidade real de créditos')
     args=parser.parse_args()
+    model_root=(ROOT/args.root).resolve()
     if not 1024<=args.port<=65533:
         raise SystemExit('Porta base deve estar entre 1024 e 65533')
     addresses=[('127.0.0.1',args.port),('127.0.0.2',args.port+1),('127.0.0.3',args.port+2)]
@@ -84,11 +91,25 @@ def main():
                 workers={'pc-a':f'https://127.0.0.2:{args.port+1}','pc-b':f'https://127.0.0.3:{args.port+2}'})
     if args.credits_demo:
         config.update(accounts={'peer-user':secrets.token_urlsafe(32)},worker_owners={'pc-a':'local-user','pc-b':'peer-user'},daily_tokens=20000,credit_timezone='America/Sao_Paulo')
+    if args.sandbox_image:config['sandbox_image']=args.sandbox_image
+    if args.p2p:
+        sys.path.insert(0,str(ROOT))
+        from mesh.discovery import new_identity
+        trusted={}
+        identity_files={}
+        for label,url in [('coordinator',config['coordinator']),*config['workers'].items()]:
+            identity=new_identity()
+            identity_path=directory/(label+'-identity.json')
+            identity_path.write_text(json.dumps(identity),encoding='utf8')
+            identity_files[label]=str(identity_path)
+            trusted[identity['peer_id']]=dict(public_key=identity['public_key'],endpoints=[url])
+        config['peer_network']=dict(trusted=trusted,identity_files=identity_files,seeds=[config['coordinator'],*config['workers'].values()])
     cfg=directory/'config.json'
     cfg.write_text(json.dumps(config,indent=2),encoding='utf8')
     for i,label in enumerate(config['workers']):
         shard=directory/label/'model'/f'part-{i}'
-        shutil.copytree(ROOT/'data/model'/f'part-{i}',shard)
+        if not args.reuse_weights:shutil.copytree(model_root/f'part-{i}',shard)
+        else:(directory/label).mkdir(exist_ok=True)
     (directory/'coordinator').mkdir()
     children=[]
     logs=[]
@@ -100,7 +121,7 @@ def main():
         log=open(log_path,'w',encoding='utf8')
         logs.append(log)
         cmd=[sys.executable,'-m','mesh',role,'--config',str(cfg),'--ca',str(cert_path),
-             '--root',str(ROOT/'data/model' if role=='coordinator' else workdir/'model'),
+             '--root',str(model_root if role=='coordinator' or args.reuse_weights else workdir/'model'),
              '--host',addresses[0 if role=='coordinator' else index+1][0],
              '--port',str(addresses[0 if role=='coordinator' else index+1][1])]
         if role=='worker':
@@ -112,7 +133,7 @@ def main():
         return child,log_path
     report=dict(kind='logical hosts on one physical computer',directory=str(directory),
                 endpoints=dict(coordinator=config['coordinator'],**config['workers']),
-                worker_directories={label:str(directory/label/'model') for label in config['workers']})
+                worker_directories={label:str((model_root if args.reuse_weights else directory/label/'model')/f'part-{i}') for i,label in enumerate(config['workers'])},reuse_local_weight_files=args.reuse_weights)
     latest=ROOT/'runtime/simulation/latest.json'
     latest.write_text(json.dumps(dict(directory=str(directory),url=config['coordinator']),indent=2),encoding='utf8')
     auth={'Authorization':'Bearer '+config['user_token']}
@@ -122,7 +143,7 @@ def main():
         coordinator=start('coordinator')
         workers=[start('worker',i) for i in range(2)]
         def wait_ready():
-            deadline=time.monotonic()+100
+            deadline=time.monotonic()+args.startup_timeout
             while time.monotonic()<deadline:
                 if any(c.poll() is not None for c,_ in [coordinator,*workers]):
                     raise RuntimeError('Serviço encerrou; consulte os logs em '+str(directory))
@@ -136,11 +157,17 @@ def main():
                         return state.json()
                 except httpx.HTTPError:pass
                 time.sleep(.5)
-            raise RuntimeError('Timeout aguardando workers')
+            detail='\n'.join(path.name+': '+path.read_text(encoding='utf8',errors='replace')[-2000:] for path in directory.glob('*.log'))
+            raise RuntimeError('Timeout aguardando workers\n'+detail)
         sys.path.insert(0,str(ROOT))
         from mesh.protocol import headers
-        def rpc_headers(body):return headers(config['cluster_secret'],body)
+        def rpc_headers(body):
+            from mesh.identity import signed_headers
+            identity=json.loads(Path(config['peer_network']['identity_files']['coordinator']).read_text()) if args.p2p else None
+            return signed_headers(config['cluster_secret'],body,'/status',identity)
+        print('Aguardando os três serviços...',flush=True)
         state=wait_ready()
+        print('Workers conectados. Verificando falhas e recuperação...',flush=True)
         service_pids={}
         for label,(_,log_path) in zip(['coordinator',*config['workers']],[coordinator,*workers]):
             match=re.search(r'Started server process \[(\d+)\]',log_path.read_text(encoding='utf8'))
@@ -162,10 +189,38 @@ def main():
         report['failure']=dict(status_code=response.status_code,explicit_error=True)
         workers[1]=start('worker',1)
         wait_ready()
+        if args.p2p:
+            from mesh.identity import signed_headers
+            wrong_identity=json.loads(Path(config['peer_network']['identity_files']['pc-b']).read_text())
+            denied=client.post(config['workers']['pc-a']+'/status',content=b'{}',headers=signed_headers(config['cluster_secret'],b'{}','/status',wrong_identity))
+            assert denied.status_code==401,'Worker conseguiu se passar pelo solicitante'
+            report['individual_auth']=dict(cross_worker_impersonation_rejected=True)
+            print('Assinatura individual verificada. Desligando o contato inicial para testar gossip...',flush=True)
+            stopped_at=int(time.time()*1000)
+            stop(coordinator[0])
+            deadline=time.monotonic()+25
+            survived=False
+            while time.monotonic()<deadline:
+                learned=[]
+                for url in config['workers'].values():
+                    response=client.get(url+'/p2p/peers')
+                    response.raise_for_status()
+                    records=response.json()['records']
+                    learned.append({r['payload']['endpoint'] for r in records if r['payload']['issued_ms']>stopped_at})
+                if all(set(config['workers'].values())<=contacts for contacts in learned):
+                    survived=True
+                    break
+                time.sleep(.5)
+            assert survived,'Gossip parou junto com o contato inicial'
+            report['discovery']=dict(coordinator_offline=True,workers_exchanged_fresh_signed_contacts=True,mode='permissioned-gossip')
+            coordinator=start('coordinator')
+            wait_ready()
         verifier=[sys.executable,str(ROOT/'tools/verify_remote.py'),'--config',str(cfg),
-                  '--root',str(ROOT/'data/model'),'--ca',str(cert_path),'--output',str(directory/'inference-evidence.json')]
+                  '--root',str(model_root),'--ca',str(cert_path),'--output',str(directory/'inference-evidence.json')]
+        if args.coding_task:verifier.append('--coding-task')
+        print('Comparando logits e gerando código pelo modelo distribuído...',flush=True)
         result=subprocess.run(verifier,cwd=ROOT,env=dict(os.environ,HF_HOME=str(ROOT/'data/hf')),
-                              capture_output=True,text=True,timeout=120,
+                              capture_output=True,text=True,timeout=600,
                               creationflags=subprocess.CREATE_NO_WINDOW if os.name=='nt' else 0)
         (directory/'verifier.log').write_text(result.stdout+result.stderr,encoding='utf8')
         if result.returncode:raise RuntimeError('Verificação falhou; veja verifier.log')

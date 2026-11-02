@@ -16,13 +16,13 @@ A saída do worker inicial é entrada do seguinte. Não existem agentes, votaç�
 
 Cada sessão usa UUID; cada worker guarda K/V por bloco, posição e última atividade. Prefill processa o prompt inteiro; passos seguintes recebem somente o token novo. As posições são idênticas nas partições. Cache é liberado ao concluir, cancelar ou falhar; se a rede impedir a liberação, o TTL de 120 s remove a sessão. O orçamento configurável bloqueia expansão de cache antes da execução. Um orçamento de KV não é limite de RSS nem garante ausência de OOM no runtime.
 
-Decodificação gulosa determinística; contexto 512 e batch 1. Uma trava por coordenador impede gerações concorrentes (429). Erros de rede encerram a geração explicitamente, preservam cobranças de trabalho concluído e tentam liberar todos os caches. Não há retry de passos nem continuação de KV perdido.
+Decodificação gulosa determinística; contexto 512 e batch 1. Um escalonador por conta alterna os passos de até oito sessões. Uma tarefa por conta é admitida; excesso recebe 429. O prefill usa fatias de até 32 tokens. Erros de rede encerram a geração explicitamente, preservam cobranças de trabalho concluído e tentam liberar todos os caches. Não há retry de passos nem continuação de KV perdido.
 
 ## Protocolo e segurança
 
 FastAPI/Uvicorn + HTTPX; JSON/base64 little-endian nativo de float32/int64 nas máquinas suportadas (x86). Payload limitado a 4 MiB, 1 milhão de elementos e contexto de 512. Tipos, batch, vocabulário, comprimento, finitude e posição são validados. HMAC autentica o corpo com timestamp; HTTPS protege confidencialidade e respostas em LAN. Sem pickle na rede. Chave única de cluster implica confiança mútua entre workers. Autenticação do usuário é um token local único nesta versão.
 
-Não há descoberta na internet, NAT traversal, blockchain, execução redundante para prova de correção, usuários múltiplos ou isolamento para workers hostis. Serviços vinculados a loopback por padrão; modo LAN exige certificados confiáveis. A cadeia contábil detecta edições internas, mas precisa de ancoragem externa para detectar reescrita integral/truncamento.
+Há descoberta gossip entre identidades previamente autorizadas. Não há descoberta pública/DHT, NAT traversal, consenso blockchain ou prova de correção contra workers hostis. As contas atuais são provisionadas pelo operador. Serviços vinculados a loopback por padrão; modo LAN exige certificados confiáveis. A cadeia contábil detecta edições internas, mas precisa de ancoragem externa para detectar reescrita integral/truncamento.
 
 ## Recibos de diagnóstico em token-layer
 
@@ -58,3 +58,25 @@ Antes de gerar, uma reserva desconta disponibilidade, sem marcar consumo. O pain
 Liquidações são idempotentes por sessão/iteração. Cada liquidação de carteira, seus repasses e evento são atômicos. Recibos antigos token-layer são apenas diagnóstico e podem ser gravados em transações posteriores; não representam saldo. Reservas sobram devolvidas ao terminar/cancelar/falhar. Um coordenador exclusivo recupera reservas abertas ao reiniciar; não compartilhar o mesmo banco entre coordenadores ativos.
 
 A auditoria verifica hash encadeado e reconstrói contas, dias e reservas para comparar com as projeções do banco. Não impede reescrita integral pelo administrador. Migração cria tabelas novas sem converter recibos antigos em créditos. Uma queda entre cálculo e persistência não remunera aquele cálculo. Duas contas em conluio ainda podem transformar franquias em extras: não há cadastro público nesta fase.
+
+## Perfil Qwen e agendamento
+
+O adaptador Qwen2 usa camadas Decoder, RMSNorm, RoPE e GQA originais da versão fixada do Transformers. Os índices de cache são locais à partição; posições da sequência permanecem globais. Pesos são float32, sem quantização ou treinamento. O último estágio entrega logits; chat template e EOS são os do tokenizer. O checkpoint Qwen2.5-Coder-0.5B-Instruct está fixado por revisão, com 24 camadas em dois intervalos contíguos. Preparação offline ainda carrega o modelo completo.
+
+`mesh/scheduler.py` admite uma sessão por conta, máximo oito, e alterna turnos sem olhar o saldo. Entradas são divididas em fatias de até 32 tokens; saídas avançam um passo por turno. Cache é separado por sessão no worker. A conta só é cobrada quando o passo lógico completo termina. Tickets evitam que uma limpeza antiga remova uma sessão nova da mesma conta; limpeza de StreamingResponse também cobre desconexão antes do primeiro token.
+
+## Gossip e assinaturas
+
+`mesh/discovery.py` guarda contatos assinados Ed25519 e os troca com múltiplos pares. A lista autorizada fixa chave e URLs; anúncios expiram em 30 segundos e versões antigas/conflitantes são recusadas. O cache é persistido e cada anúncio aprendido é verificado antes de ser aceito ou usado como destino. O protocolo limita mensagens e participantes; não oferece participação anônima.
+
+`mesh/identity.py` vincula assinaturas de comandos à rota, timestamp e corpo, e recibos ao digest da requisição/resultado. O coordenador verifica a chave individual fixada para o endpoint antes de liquidar trabalho; trabalhadores só aceitam comandos do solicitante autorizado. Recibos são guardados na carteira e no histórico de diagnóstico. Isso não é prova matemática de inferência nem consenso de créditos.
+
+## Projeto e testes
+
+`mesh/workspace.py` mapeia cada conta a um diretório próprio, valida caminhos, recusa links, limita tamanho/quantidade e exige revisão para sobrescrever. A interface mostra diff. Ast.parse verifica sintaxe sem executar. Unittest é opt-in em Docker com imagem local aprovada por ID SHA-256, rede none, montagem somente leitura, usuário 65534, capabilities removidas, no-new-privileges e limites de CPU/RAM/PIDs/tempo/saída. A API não aceita comandos de shell arbitrários. Ainda não há loop autônomo completo de ferramentas e correção de projetos.
+
+## Estado persistente e repetição segura
+
+A aplicação de uso normal é iniciada por tools/run_network.py em runtime/network; preserva configuração, identidades, carteira e arquivos. tools/simulate_hosts.py permanece diagnóstico descartável e tools/verify_remote.py pode carregar uma referência completa fora do caminho normal. tools/smoke_network.py valida aplicação real sem referência extra, persistindo checkpoints de evidência.
+
+Cada sessão worker guarda somente a última posição de entrada, hash da requisição e resposta completa, incluindo recibo, além do KV. Repetição idêntica do último passo devolve a resposta sem novo cálculo; conflito retorna 409. Depois que a sessão avança, pedidos mais antigos não são aceitos. O coordenador repete uma vez erros transitórios de protocolo/leitura/conexão/timeout, com assinatura temporal nova e o mesmo corpo. Liquidação continua uma vez por iteração. Cache expira com a sessão; falhas permanentes continuam explícitas.

@@ -2,7 +2,8 @@
 UMA REDE DE COMPUTADORES PARA TORNAR A INTELIGÊNCIA ARTIFICIAL MAIS ACESSÍVEL
 
 Última atualização: 02/11/2026
-Fase atual: protótipo funcional de inferência distribuída e créditos de contribuição.
+Fase atual: rede experimental funcional para participantes autorizados, com modelo
+de programação distribuído, créditos, descoberta assinada e ferramentas de projeto.
 Repositório: https://github.com/ArthurCarlosF/IA_COLABORATIVA
 
 POR QUE ESTE PROJETO EXISTE
@@ -79,11 +80,23 @@ renovação, créditos extras, contribuição e extrato. Não há pagamentos ou 
 
 O QUE JÁ FUNCIONA
 
-- Modelo real GPT-2 pequeno particionado entre workers.
+- Modelos reais GPT-2 e Qwen2 particionados entre workers. O perfil de programação
+  usa Qwen2.5-Coder-0.5B-Instruct, com suas 24 camadas divididas em duas partes.
 - Execução de camadas, transmissão de ativações e KV cache por worker.
 - Coordenador com registro, validação de partições e monitoramento dos computadores.
 - Chat web com geração e envio progressivo da resposta.
+- Contas, créditos e arquivos mantidos após reinício, com verificação real dessa
+  persistência. Recuperação limitada de resposta perdida, sem repetir cálculo/débito.
 - Autenticação, validação de mensagens e HTTPS nas conexões remotas dos serviços.
+- No modo P2P autorizado, identidade Ed25519 por participante, anúncios e comandos
+  assinados, além de recibos individuais vinculados à requisição e ao resultado.
+- Descoberta por gossip com múltiplos contatos, expiração e verificação de identidade.
+  Os workers continuaram trocando anúncios novos sem o contato inicial ativo.
+- Alternância de turnos por conta, até oito sessões, uma tarefa por conta e fatias
+  de entrada limitadas, para que uma tarefa longa não exclua outros usuários.
+- Arquivos privados por conta, editor, diferenças entre versões e checagem sintática.
+- Testes Python unittest em Docker opt-in: sem rede, projeto somente leitura, usuário
+  sem privilégios e limites de CPU, RAM, processos, tempo e saída.
 - Contas distintas, franquia diária e créditos por contribuição real.
 - Histórico contábil encadeado e verificação da consistência dos saldos e reservas.
 - Demonstração com dois processos worker, IPs loopback distintos e pastas próprias
@@ -91,34 +104,66 @@ O QUE JÁ FUNCIONA
 
 VALIDAÇÃO JÁ EXECUTADA
 
-A suíte mais recente passou em 43 testes, incluindo inferência real em HTTP e HTTPS,
+A rodada anterior passou em 71 testes com Docker ativo. Na rodada mais recente,
+74 testes passaram e dois testes Docker foram pulados porque o serviço ficou
+indisponível. As verificações incluem inferência real em HTTP e HTTPS,
 comparação com execução local, contribuição entre contas, esgotamento da franquia,
-gasto de extras, cancelamento, falhas, recuperação e regras de renovação diária.
+gasto de extras, cancelamento, falhas, recuperação, renovação diária, alternância
+entre contas, arquivos privados, assinaturas, descoberta e restrições reais do Docker.
+
+O checkpoint Qwen real gerou uma função Python add(a, b) que passou em três casos
+de teste aritméticos. Isso valida uma tarefa pequena; não demonstra equivalência
+com o Codex nem qualidade abrangente de programação.
 
 Na comparação incremental de oito passos, o erro máximo dos logits foi zero. Os
 testes de fronteira da meia-noite usam um relógio controlado no motor contábil;
 a execução neural dos testes de integração é real.
 
 A interface inicial foi utilizada no navegador em etapas anteriores. A nova versão
-do painel de franquia passou na checagem sintática do JavaScript, mas sua conferência
-visual no navegador ficou pendente por recusa da autorização da ferramenta. Consulte
+com saldo, arquivos e participantes passou na checagem sintática do JavaScript, mas
+sua conferência visual no navegador ficou pendente por recusa anterior da autorização
+da ferramenta. Consulte
 TEST_RESULTS.md para o registro completo e atualizado.
+
+O perfil persistente passou em uso real: geração de código, três casos de teste
+aritméticos sob avaliação restrita, gravação de arquivos privados, sintaxe,
+contribuição entre contas e verificação de 75 recibos assinados. Essa verificação
+não carrega um modelo de referência adicional e não substitui benchmarks amplos.
+
+Após os testes de isolamento passarem, o serviço Docker local apresentou timeout
+e erro interno 500 na demonstração combinada. O lançador continua sem executar
+containers quando esse serviço está indisponível, deixando a etapa explicitamente
+pendente. Não confundir esse modo com um teste de container concluído.
 
 O QUE AINDA PRECISA SER CONSTRUÍDO OU VALIDADO
 
-A versão atual depende de um coordenador e de um banco local, com contas autorizadas.
-A execução entre dois computadores físicos ainda precisa ser validada. O checkpoint
-usado é tiny-gpt2: ele comprova o funcionamento da divisão neural, mas produz texto
-repetitivo e não oferece qualidade de assistente de programação.
+A versão atual ainda depende de um coordenador e de um banco local para tarefas e
+créditos. A descoberta pode ocorrer diretamente entre os participantes autorizados;
+isso não significa que a validação contábil dos créditos já seja descentralizada.
+A execução entre dois computadores físicos ainda precisa ser validada: o responsável
+informou que não há uma segunda máquina disponível por enquanto.
 
-As próximas etapas incluem modelos úteis, testes em hardware físico, desempenho em
-redes reais, distribuição automática, fila justa para múltiplos usuários, redundância,
-recuperação e uma interface completa de trabalho.
+Há dois perfis: tiny-gpt2 para regressões leves e Qwen2.5-Coder-0.5B-Instruct para
+programação inicial. O segundo produz código útil em tarefas pequenas já verificadas,
+mas ainda exige avaliação ampla. Contexto e saída continuam limitados nesta etapa.
 
-A descentralização pública também exige descoberta de participantes, consenso de
-créditos, proteção contra identidades falsas e conluio, verificação de execução e
+As próximas etapas incluem modelos mais capazes, testes em hardware físico, desempenho
+em redes reais, distribuição automática, justiça entre solicitantes independentes,
+redundância e recuperação em outro worker. A interface precisa evoluir para um agente
+com ferramentas iterativas e histórico durável de conversas, além do editor e dos
+testes já disponíveis.
+
+A descentralização pública também exige descoberta aberta/DHT, conexões através de
+roteadores, consenso de créditos, proteção contra identidades falsas e conluio,
+verificação de execução e
 privacidade diante de workers maliciosos. Modelos podem auxiliar a defesa, mas não
-substituem regras verificáveis de segurança e contabilidade.
+substituem regras verificáveis de segurança e contabilidade. Um recibo assinado
+comprova quem declarou um resultado; não prova que o cálculo foi correto.
+
+Os containers restringem testes locais, mas não constituem garantia absoluta contra
+falhas do kernel ou do runtime. Abrir execução para participantes hostis exige análise
+e isolamento adicionais. O preparo dos pesos e a validação de referência ainda
+carregam um modelo completo offline; modelos maiores exigirão carregamento seletivo.
 
 Remunerar memória ociosa é uma meta futura: será necessário comprovar disponibilidade
 útil e impedir dupla contagem de recursos. Anunciar memória, sozinho, não gera créditos.
@@ -132,7 +177,12 @@ PARA QUEM ESTÁ BAIXANDO AGORA
 Este repositório é uma base funcional de pesquisa e desenvolvimento. Comece pelo
 README.md para instalação, configuração e execução. Modelos, ambiente virtual,
 configurações privadas, bancos, certificados e tokens de acesso não acompanham o Git.
-O procedimento de preparação dos pesos está documentado.
+O procedimento de preparação dos pesos está documentado. Para experimentar o perfil
+de código no Windows, após instalar as dependências, execute run-coder.ps1. Ele inicia
+um perfil persistente em localhost:8400. Contas, créditos e arquivos ficam em
+runtime/network; o token está em config.json nessa pasta. A aplicação normal não
+carrega uma referência inteira do modelo a cada início. A primeira
+execução baixa o checkpoint e pode demorar; são necessários alguns GB de RAM e disco.
 
 A demonstração com dois hosts lógicos está em SIMULATION.md. A opção --credits-demo
 do lançador permite conferir contribuição e consumo entre duas contas. Não publique
@@ -150,6 +200,7 @@ SECURITY.md            Proteções atuais e limitações.
 DEPLOY_LAN.md          Preparação para dois computadores físicos.
 SIMULATION.md          Dois workers no mesmo computador.
 docs/PREMISES.md       Objetivo, decisões e premissas.
+docs/FUNCTIONAL_STATUS.md  Entregas, evidências e impedimentos para a visão completa.
 docs/CREDIT_PLAN.md    Plano detalhado de franquia e contribuição.
 AGENTS.md              Regras de trabalho e manutenção da documentação.
 
