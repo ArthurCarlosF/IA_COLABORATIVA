@@ -1,0 +1,27 @@
+.venv/
+__pycache__/
+.pytest_cache/
+data/
+runtime/
+*.log
+
+# Instalação e builds locais
+*.egg-info/
+build/
+dist/
+# Credenciais e dados privados
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.pfx
+*.p12
+*.sqlite
+*.sqlite-*
+*.db
+# Editor e sistema
+.vscode/
+.idea/
+Thumbs.db
+.DS_Store
