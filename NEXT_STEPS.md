@@ -2,9 +2,9 @@
 
 ## Retomar a demonstração atual
 
-Execute python -m mesh slow-run --job runtime/slow-480b-proof --max-tiles 1 usando o ambiente existente para avançar mais um bloco real do 480B. Para repetir os dois blocos com dois processos, preserve a referência no ponto de duas confirmações e use tools/verify_real_tiles.py. Novas instalações devem seguir docs/MODO-LENTO.md. Para validação numérica MoE, gere a referência sintética isolada com tools/make_moe_reference.py; o ambiente principal mantém Transformers 4.44.2.
+O trabalho CLI em `runtime/slow-480b-proof` tem três blocos confirmados, até a coluna 192. Execute `.\.venv\Scripts\python -m mesh slow-run --job runtime/slow-480b-proof --max-tiles 1` para avançar mais um bloco. Para repetir a prova de dois executores, crie uma referência descartável de exatamente dois blocos conforme docs/MODO-LENTO.md e indique sua pasta com `tools/verify_real_tiles.py --job PASTA`. Preserve o trabalho original. Para validação numérica MoE, gere a referência sintética isolada com tools/make_moe_reference.py. O ambiente principal mantém Transformers 4.44.2.
 
-Próximas provas: portar o protocolo de blocos para firmware/app, medir RAM total em aparelho físico, validar TLS e retomada após perda de energia, e testar a execução integral com computadores que caibam no plano de 72B/480B. Ainda faltam integração de trabalhos lentos ao chat/créditos e medições de recuperação/latência em escala.
+Na porta 8400, o botão **Modo lento** abre os trabalhos do operador. Os checkpoints web ficam em `runtime/network/coordinator/runtime/slow-jobs`. O painel usa a CPU local. Próxima etapa: permitir que o operador configure executores remotos para esses trabalhos e registrar contribuições sem duplicar créditos quando um bloco for reexecutado. Faltam validação integral de 72B/480B, medições em dois PCs físicos, recuperação e latência em escala. Firmware e aplicativo ficam para quando houver aparelhos de teste.
 
 1. Leia AGENTS.md, ARCHITECTURE.md, PROGRESS.md e TEST_RESULTS.md.
 2. Abra D:/Projetos/RedeInferencia. Se os serviços não estiverem ativos, execute run-local.ps1.

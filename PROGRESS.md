@@ -1,8 +1,16 @@
-# Progresso — 02/11/2026
+# Progresso — 03/11/2026
+
+## Modo lento na interface
+
+O painel do operador local permite escolher um perfil independente do chat, iniciar um lote limitado, pausar, consultar saída e retomar o mesmo trabalho. O cálculo usa o motor existente em subprocesso. Histórico e checkpoints ficam no disco do coordenador. Os executores remotos de microblocos continuam disponíveis pela CLI. A carteira do chat permanece separada.
+
+O trabalho original do 480B em `runtime/slow-480b-proof` retomou da coluna 128 para a 192. O terceiro bloco leu 25.088 bytes de pesos. A posição de geração continua 0, sem tokens produzidos.
+
+Em um novo trabalho pela API do painel, dois lotes do 480B avançaram até a coluna 6.144 da primeira projeção. A carteira permaneceu igual. Um terceiro lote pausou durante a execução e preservou quatro blocos no total. A evidência está em `runtime/network/slow-web-evidence.json`. O perfil normal em 8400 registrou os dois workers TLS online.
 
 ## 480B, blocos pequenos e retomada
 
-Pausa solicitada pelo usuário: código salvo; trabalho real em runtime/slow-480b-proof com dois blocos confirmados, coluna 128 e nenhum token completo. O perfil normal em 8400 não foi reiniciado nesta etapa. Amanhã, retomar conforme NEXT_STEPS.md. O teste adicional do chat terminou: Qwen real do cache respondeu “2+2 equals 4.” com 98 operações e dois workers TLS, sem baixar pesos.
+Na sessão de 02/11, o trabalho real ficou com dois blocos confirmados e a coluna 128. O teste adicional do chat terminou: Qwen real do cache respondeu “2+2 equals 4.” com 98 operações e dois workers TLS, sem baixar pesos.
 
 Implementados adaptador de grafo Qwen2/Qwen3 MoE, planos por operações internas, carregamento parcial e modo lento. O plano real do 480B para 1.024 participantes tem 10.074 operações e maior atribuição de 471.920.640 parâmetros; 512 e 4.096 participantes também foram planejados abaixo de 1B por participante. O plano gravado ocupa 44,97 MiB de metadados/tokenizer e zero arquivos de pesos. O 72B foi planejado para 128 participantes e 324 operações, maior atribuição de 999.997.440 parâmetros.
 

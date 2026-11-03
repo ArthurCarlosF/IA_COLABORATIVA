@@ -69,10 +69,12 @@ def create_coordinator(root,secret,user_token,allowed,db_path,verify=True,accoun
 
     agent=None
     model_control=None
+    slow_jobs=None
     @asynccontextmanager
     async def lifespan(app):
         if gossip:gossip.start()
         yield
+        if slow_jobs:await slow_jobs.close()
         if model_control:await model_control.close()
         if agent:await agent.close()
         if gossip:gossip.close()
@@ -161,7 +163,7 @@ def create_coordinator(root,secret,user_token,allowed,db_path,verify=True,accoun
     async def status(request:Request):
         user=auth(request)
         rows=[dict(id=k,url=n['url'],spec=n['spec'],resources=n['resources'],online=time.monotonic()-n['seen']<8) for k,n in nodes.items()]
-        return dict(model=manifest['model'],revision=manifest['revision'],nodes=rows,metrics=metrics,busy=bool(scheduler.active),scheduler=scheduler.status(),required_parts=len(manifest['parts']),logical_pieces=len(manifest.get('pieces',manifest['parts'])),assignments=assignments,ledger_valid=ledger.verify(),usage=wallet.snapshot(user),context_limit=context_limit,output_limit=output_limit)
+        return dict(model=manifest['model'],revision=manifest['revision'],nodes=rows,metrics=metrics,busy=bool(scheduler.active),scheduler=scheduler.status(),required_parts=len(manifest['parts']),logical_pieces=len(manifest.get('pieces',manifest['parts'])),assignments=assignments,ledger_valid=ledger.verify(),usage=wallet.snapshot(user),context_limit=context_limit,output_limit=output_limit,slow_jobs=user=='local-user' and local_operator(request))
 
     @app.get('/api/usage')
     async def usage(request:Request):
@@ -412,6 +414,9 @@ def create_coordinator(root,secret,user_token,allowed,db_path,verify=True,accoun
     app.state.agent=agent
     def local_operator(request):
         return bool(request.client and request.client.host in ('127.0.0.1','::1'))
+
+    from .slow_web import SlowJobs
+    slow_jobs=SlowJobs(app,Path(db_path).parent/'slow-jobs',auth,local_operator,bounded_json)
 
     @app.get('/api/agent/runs')
     async def agent_runs(request:Request):

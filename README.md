@@ -1,6 +1,6 @@
 # IA Colaborativa — base de inferência distribuída
 
-**Blocos menores e modo retomável:** o [modo lento](docs/MODO-LENTO.md) lê fatias dos pesos, grava resultados parciais e continua após reinício. O grafo de execução tem perfis 72B e Qwen3-Coder-480B; a validação integral desses modelos em rede física continua pendente.
+**Blocos menores e modo retomável:** o [modo lento](docs/MODO-LENTO.md) lê fatias dos pesos, grava resultados parciais e continua após reinício. No painel local, o botão **Modo lento** permite escolher um perfil, iniciar, pausar e retomar lotes. O grafo de execução tem perfis 72B e Qwen3-Coder-480B. A validação integral desses modelos em rede física continua pendente.
 
 **Comece por [LEIA-ME-PRIMEIRO.txt](LEIA-ME-PRIMEIRO.txt)**: visão, dimensão, princípios, funcionamento e estado real do projeto. Esse arquivo deve acompanhar as alterações relevantes.
 

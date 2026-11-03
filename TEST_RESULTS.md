@@ -1,4 +1,15 @@
-# Testes executados — 02/11/2026
+# Testes executados — 03/11/2026
+
+## Modo lento pelo serviço web
+
+- `tests/test_slow_web.py tests/test_durable_tiles.py tests/test_agent_api.py` em `.venv`: **6 passed in 41.74s**. Incluiu autorização local, validação de parâmetros, concorrência, pausa, histórico reaberto, retomada de matriz após queda de processo e regressão da API de agente.
+- HTTP no coordenador real em 8400: criação e retomada de um novo trabalho do Qwen3-Coder-480B. Duas invocações confirmaram um bloco cada, avançando da coluna 4.096 para a 6.144 na primeira projeção. Leituras de pesos de 32.768 e 28.672 bytes por lote, sem baixar o checkpoint completo. A conta convidada recebeu 403 e a carteira permaneceu igual. Nenhum token completo. Evidência `runtime/network/slow-web-evidence.json`.
+- No mesmo trabalho, foi solicitada pausa durante um lote de até 16 blocos. A API retornou `pausing` e depois `paused`, com dois novos blocos confirmados e 36.864 bytes de pesos lidos. O checkpoint manteve quatro blocos confirmados no total.
+- O trabalho CLI original avançou de 128 para 192 colunas em um lote, leu 25.088 bytes de pesos e continuou na posição de geração 0. Evidência `runtime/slow-480b-proof`.
+- JavaScript validado com `node --check`, Python com `compileall` e alterações com `git diff --check`. A interface foi verificada pelo HTML servido e pela API, sem teste visual no navegador.
+- `tests/test_integration.py tests/test_model_control.py`: **26 passed, 1 failed in 139.98s**. O teste de concorrência em HTTP recebeu 200 onde esperava 429. O extrato isolado mostra que a primeira geração tinha saído e liberado a reserva antes da segunda admissão, após liquidar somente um passo de um limite de 64.
+- Repetição direcionada de `worker_failure_and_recovery` e `concurrency_and_cancel` em HTTP e TLS: **4 passed, 20 deselected in 187.33s**. A falha da rodada anterior não se repetiu.
+- O perfil normal em 8400 foi iniciado com o modelo residente Qwen2.5-0.5B-Instruct e registrou dois workers TLS online.
 
 ## Grafo MoE e retomada por microblocos
 

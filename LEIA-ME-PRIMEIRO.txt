@@ -1,7 +1,7 @@
 ﻿IA COLABORATIVA
 UMA REDE DE COMPUTADORES PARA TORNAR A INTELIGÊNCIA ARTIFICIAL MAIS ACESSÍVEL
 
-Última atualização: 02/11/2026
+Última atualização: 03/11/2026
 Fase atual: rede experimental funcional para participantes autorizados, com modelo
 de programação distribuído, créditos, descoberta assinada e ferramentas de projeto.
 Repositório: https://github.com/ArthurCarlosF/IA_COLABORATIVA
@@ -258,6 +258,10 @@ O projeto agora divide também as operações internas do modelo. O plano real d
 
 No modo lento, os pesos chegam por linhas e colunas conforme a necessidade. Somas parciais, posição, tokens e KV ficam em SQLite. O trabalho pode parar e retomar sem expirar pelo relógio. Uma máquina limitada pode avançar por pequenos blocos, pagando em tempo e tráfego em vez de manter todos os pesos disponíveis ao mesmo tempo. O limite de um bloco não é o limite total de RAM do Python, do contexto e da conexão.
 
-Os primeiros dois blocos reais do 480B foram calculados e retomados. A mesma soma foi reproduzida em dois processos leves, um bloco de 1.344 bytes de arrays por processo. O modelo gigante não foi instalado inteiro e ainda não respondeu uma pergunta completa. A geração íntegra do novo motor foi verificada num MoE sintético pequeno, com referência independente e retomada.
+Três blocos reais do 480B foram confirmados no trabalho original. A soma parcial dos dois primeiros foi reproduzida em dois processos leves, um bloco de 1.344 bytes de arrays por processo. A geração íntegra do novo motor foi verificada num MoE sintético pequeno, com referência independente e retomada.
 
-Essa divisão abre caminho para computadores, celulares e microcontroladores ajudarem de acordo com seus recursos. O protocolo de blocos já existe para computadores; firmware ESP32 e aplicativo celular ainda não existem nesta etapa. Também não foram validados 72B/480B integrais, milhares de máquinas físicas ou uma pausa de um ano. O modo lento é via terminal e ainda não está ligado ao chat e aos créditos. Veja docs/MODO-LENTO.md para iniciar, interromper e continuar, e TEST_RESULTS.md para evidências reais.
+No navegador, o operador local pode abrir Modo lento ao lado da caixa de mensagem, escolher um perfil e iniciar ou retomar lotes de cálculo. O painel usa a CPU local e preserva o histórico no disco. Para usar executores leves remotos, o terminal permite configurar a lista de computadores. A carteira do chat fica separada desses trabalhos.
+
+Pela API do painel, um novo trabalho real do 480B confirmou quatro blocos em três lotes. O terceiro foi pausado durante o cálculo. Os pesos foram lidos por intervalos e o checkpoint ficou guardado para continuar.
+
+Essa divisão abre caminho para computadores, celulares e microcontroladores contribuírem de acordo com seus recursos. O protocolo de blocos já existe para computadores. Firmware ESP32 e aplicativo celular ficam para uma etapa futura. O 480B ainda está em validação parcial e os ensaios não demonstram uma resposta completa dele, milhares de computadores físicos ou uma pausa de um ano. Veja docs/MODO-LENTO.md para instruções e TEST_RESULTS.md para resultados.

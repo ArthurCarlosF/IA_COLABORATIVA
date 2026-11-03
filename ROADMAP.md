@@ -7,7 +7,8 @@
 - [x] Executor de blocos sem Torch, protocolo pequeno e alternância entre endpoints autorizados.
 - [ ] Adaptadores nativos de ESP32 e celular, validação em aparelhos reais e medição de RAM total/TLS.
 - [ ] Inferência integral de 72B/480B em hardware físico, recuperação distribuída em escala e avaliação de qualidade.
-- [ ] Histórico e controle de trabalhos lentos pelo navegador, integração dos microblocos aos créditos e descoberta/consenso públicos.
+- [x] Histórico e controle local de trabalhos lentos pelo painel web.
+- [ ] Executores de microblocos configuráveis no painel, liquidação dos créditos e descoberta/consenso públicos.
 
 Detalhes e comandos: docs/MODO-LENTO.md. Não confundir plano de milhares de participantes com teste de milhares de computadores conectados.
 

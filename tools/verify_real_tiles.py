@@ -24,7 +24,7 @@ from mesh.tile_worker import TileClient,TilePool
 
 def main():
     parser=argparse.ArgumentParser()
-    parser.add_argument('--job',default='runtime/slow-480b-proof')
+    parser.add_argument('--job',required=True,help='Local reference job paused after exactly two tiles')
     args=parser.parse_args()
     previous=Path(args.job)
     settings=json.loads((previous/'job.json').read_text(encoding='utf8'))

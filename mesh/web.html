@@ -8,6 +8,24 @@
 <aside><h1>◈ IA Colaborativa</h1><p class="muted">Computadores que colaboram.</p><label>Token de acesso<input id="key" type="password" autocomplete="off" placeholder="Cole o token da sua conta"></label><button id="connect">Conectar</button><div id="account-label" class="muted">Conta desconectada</div><h2>PROJETO</h2><button id="open-workspace">Arquivos e testes</button><button id="open-peers">Participantes P2P</button><button id="recover-model" hidden>Recuperar troca interrompida</button><h2>TAREFAS SALVAS</h2><div id="agent-runs"></div><h2>COMPUTADORES</h2><div id="nodes">Conecte-se para ver a rede.</div><h2>DESEMPENHO</h2><div id="metrics" class="muted">—</div><h2>RECIPROCIDADE</h2><p class="policy">Contribua executando partes do modelo para outras pessoas. Sua contribuição vira crédito para usar a rede.<br><br>Sem vendas ou pagamentos.</p></aside>
 <main><header><div><strong>Chat distribuído</strong><div id="model" class="muted">Conecte sua conta</div></div><div class="usage-wrap"><button id="usage-toggle" class="usage-trigger" aria-expanded="false" aria-controls="usage-card">Uso e créditos</button><section id="usage-card" aria-label="Uso e créditos" hidden><div class="usage-source">Fonte de uso: rede colaborativa gratuita</div><div class="usage-row"><span>Franquia diária restante</span><strong id="daily-left">— tokens</strong></div><div class="usage-sub" id="daily-reset">Renova às 00:00 de Brasília</div><div class="usage-row"><span>Créditos extras</span><strong id="extra-left">— tokens</strong></div><div class="usage-sub">Ganhos por contribuição. Não expiram.</div><hr class="usage-divider"><div class="usage-row"><span>Contribuição acumulada</span><strong id="contribution">— tokens</strong></div><div class="usage-sub" id="contribution-detail">Processamento para outras pessoas.</div><div class="usage-row"><span>Disponível para usar</span><strong id="total-left">— tokens</strong></div><div class="usage-sub" id="reserved"></div><div id="usage-warning"></div><hr class="usage-divider"><button id="manage-usage">Gerenciar uso →</button></section></div></header><div id="messages" aria-live="polite"><div class="bubble">Como posso ajudar?<br><span class="muted">O modelo ativo é informado ao conectar. A rede executa suas camadas entre workers; avalie o código gerado antes de utilizá-lo.</span></div></div><div id="error" role="alert"></div><form id="chat"><textarea id="prompt" aria-label="Mensagem ou tarefa" rows="2" placeholder="Peça uma alteração no seu projeto" maxlength="6000" required></textarea><div class="composer-controls"><button type="button" id="attach-project" aria-label="Abrir arquivos">+</button><select id="task-mode" aria-label="Modo"><option value="chat">Chat</option><option value="agent">Agente de projeto · experimental</option></select><select id="model-select" aria-label="Modelo"><option value="">Conecte para selecionar modelo</option></select><select id="max-tokens" aria-label="Limite da resposta"><option value="32">32 tokens</option><option value="64">64 tokens</option><option value="128">128 tokens</option><option value="512">512 tokens</option></select><button type="button" id="stop">Parar</button><button id="send" aria-label="Enviar">↑</button></div></form><footer>Entrada e saída consomem tokens. Franquia diária não acumula. A rede atual usa um coordenador local.</footer></main>
 <dialog id="workspace-dialog"><button id="close-workspace" style="float:right">Fechar</button><h2>Arquivos do seu projeto</h2><p class="policy">Arquivos privados por conta. Salve antes de verificar ou executar testes.</p><select id="file-list" aria-label="Arquivos"><option value="">Novo arquivo</option></select><input id="file-path" aria-label="Caminho do arquivo" placeholder="src/add.py"><textarea id="file-content" aria-label="Editor de código" rows="16" style="width:100%;font:13px monospace"></textarea><p><button id="save-file">Salvar alteração</button> <button id="save-answer">Usar último código do chat</button> <button id="check-file">Verificar sintaxe</button> <button id="run-tests">Executar unittest isolado</button></p><p class="policy">Testes exigem imagem Docker aprovada pelo operador. Container sem rede, projeto somente leitura e limites de recursos. Não é um terminal livre no computador do participante.</p><pre id="terminal-output" style="white-space:pre-wrap;overflow-wrap:anywhere"></pre></dialog><dialog id="peers-dialog"><button id="close-peers" style="float:right">Fechar</button><h2>Participantes descobertos</h2><p class="policy">Gossip com anúncios assinados e identidades autorizadas. Descoberta distribuída; créditos ainda são validados pelo coordenador local.</p><pre id="peers-output" style="white-space:pre-wrap"></pre></dialog><dialog id="usage-dialog"><button id="close-dialog" aria-label="Fechar uso">Fechar</button><h2>Uso e contribuição</h2><p class="policy">A parte gratuita renova no fuso configurado. Créditos extras são ganhos executando tarefas de outras contas. Trabalho próprio não gera crédito. Cada token completo é dividido entre os workers; não há duplicação por camada. As reservas não utilizadas são devolvidas ao terminar.</p><div id="usage-summary"></div><p class="policy">Esta versão usa identidades autorizadas e um banco local auditável. Ainda não implementa consenso público, prova de disponibilidade nem recompensa por ociosidade.</p><details><summary>Extrato e verificação de integridade</summary><pre id="audit-content">Carregando…</pre></details></dialog>
+<dialog id="slow-dialog" aria-labelledby="slow-title">
+  <button id="slow-close" style="float:right">Fechar</button><h2 id="slow-title">Inferência por blocos</h2>
+  <p class="policy">Modo experimental neste computador. Lê pesos sob demanda e salva o cálculo no disco. Pode levar muito tempo. Os créditos da rede ficam separados.</p>
+  <form id="slow-form" style="display:grid">
+    <label>Modelo <select id="slow-model"></select></label>
+    <label>Pergunta <textarea id="slow-prompt" rows="2" maxlength="6000" required style="width:100%"></textarea></label>
+    <label>Máximo de tokens de saída <input id="slow-tokens" type="number" min="1" max="512" value="32" required></label>
+    <label>Blocos por lote <input id="slow-tiles" type="number" min="1" max="1024" value="16" required></label>
+    <button id="slow-start" disabled>Iniciar novo trabalho</button>
+  </form>
+  <hr class="usage-divider">
+  <label>Trabalhos salvos <select id="slow-history"></select></label>
+  <button id="slow-resume" disabled>Executar próximo lote</button>
+  <button id="slow-pause" disabled>Pausar</button>
+  <p id="slow-status" aria-live="polite"></p>
+  <p id="slow-error" role="alert"></p>
+  <pre id="slow-output" style="white-space:pre-wrap;overflow-wrap:anywhere"></pre>
+</dialog>
 <script>
 const $=id=>document.getElementById(id);let controller,usage;let lastAnswer='',fileRevision=null;let ready=false;let connectedKey='';let refreshInFlight=false;let activeRun=null,agentAfter=0,agentPolling=false;let modelCatalog=[],modelSwitch=false,modelPoll=false,lastModelState="";
 const fmt=n=>Number(n).toLocaleString('pt-BR',{maximumFractionDigits:6});
@@ -46,4 +64,77 @@ async function pollModel(){if(!connectedKey||modelPoll||!modelSwitch)return;mode
 $('recover-model').onclick=async()=>{try{$('recover-model').disabled=true;await api('/api/models/recover',{});$('recover-model').hidden=true;modelSwitch=false;$('send').disabled=false;await loadModels();await refresh()}catch(e){$('error').textContent=e.message}finally{$('recover-model').disabled=false}};
 setInterval(pollModel,1500);
 setInterval(pollRun,1500);$('attach-project').onclick=()=>$('open-workspace').click();
+
+const slowOpen=document.createElement('button');
+slowOpen.type='button';slowOpen.textContent='Modo lento';slowOpen.hidden=true;
+$('stop').before(slowOpen);
+let slowSelected='',slowBusy=false,slowLoading=false,slowAction=false,slowVersion=0;
+const slowDialog=$('slow-dialog');
+const slowLabels={paused:'Pausado',running:'Executando',pausing:'Pausando',completed:'Concluído',failed:'Falhou'};
+
+function setSlowControls(job){
+  $('slow-start').disabled=slowBusy||slowAction;
+  $('slow-resume').disabled=!job||slowBusy||slowAction||job.status==='completed';
+  $('slow-pause').disabled=slowAction||job?.status!=='running';
+  $('slow-status').textContent=job?slowLabels[job.status]+(job.result?
+    ' • '+job.result.generated.length+' tokens de saída • posição '+job.result.position+
+    ' • último lote: '+job.result.tiles_executed+' blocos, '+fmt(job.result.source_weight_bytes)+' bytes de pesos':''):'';
+  $('slow-output').textContent=job?(job.prompt+'\n\n'+(job.result?.text||
+    (job.status==='completed'?'O modelo encerrou sem texto.':'Aguardando tokens de saída.'))):'';
+}
+
+async function loadSlow(){
+  if(!slowDialog.open||slowLoading||slowAction)return;
+  const version=slowVersion;
+  slowLoading=true;
+  try{
+    const data=await api('/api/slow/jobs');
+    if(version!==slowVersion||!slowDialog.open)return;
+    if(!$('slow-model').options.length){
+      $('slow-model').replaceChildren(...data.profiles.map(p=>new Option(p.model,p.profile)));
+      $('slow-model').value='general-0.5b';
+    }
+    slowBusy=data.jobs.some(j=>['running','pausing'].includes(j.status));
+    $('slow-history').replaceChildren(...data.jobs.map(j=>new Option(slowLabels[j.status]+' • '+j.prompt.slice(0,60),j.id)));
+    if(!data.jobs.some(j=>j.id===slowSelected))slowSelected=data.jobs[0]?.id||'';
+    $('slow-history').value=slowSelected;
+    const job=data.jobs.find(j=>j.id===slowSelected);
+    setSlowControls(job);
+    if(job?.error)$('slow-error').textContent=job.error;
+  }catch(e){if(version===slowVersion)$('slow-error').textContent=e.message}
+  finally{slowLoading=false}
+}
+
+async function slowCommand(path,body){
+  if(slowAction)return;
+  slowVersion++;
+  slowAction=true;
+  $('slow-error').textContent='';
+  setSlowControls(null);
+  try{const job=await api('/api/slow/jobs'+path,body);slowSelected=job.id;return true}
+  catch(e){$('slow-error').textContent=e.message;return false}
+  finally{slowAction=false;await loadSlow()}
+}
+
+slowOpen.onclick=()=>{slowDialog.showModal();loadSlow()};
+$('slow-close').onclick=()=>slowDialog.close();
+$('slow-history').onchange=()=>{slowSelected=$('slow-history').value;$('slow-error').textContent='';loadSlow()};
+$('slow-form').onsubmit=async e=>{
+  e.preventDefault();
+  const data={profile:$('slow-model').value,prompt:$('slow-prompt').value.trim(),
+    tokens:$('slow-tokens').valueAsNumber,tiles:$('slow-tiles').valueAsNumber};
+  if(await slowCommand('',data))$('slow-prompt').value='';
+};
+$('slow-resume').onclick=()=>{
+  if($('slow-tiles').reportValidity())slowCommand('/'+slowSelected+'/resume',{tiles:$('slow-tiles').valueAsNumber});
+};
+$('slow-pause').onclick=()=>slowCommand('/'+slowSelected+'/pause',{});
+$('connect').addEventListener('click',async ()=>{
+  slowVersion++;
+  slowDialog.close();slowOpen.hidden=true;slowSelected='';
+  $('slow-prompt').value='';$('slow-output').textContent='';$('slow-error').textContent='';
+  const key=connectedKey;
+  try{const data=await api('/api/status');if(key===connectedKey)slowOpen.hidden=!data.slow_jobs}catch{}
+});
+setInterval(loadSlow,1500);
 </script></html>

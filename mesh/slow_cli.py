@@ -13,7 +13,7 @@ from .partition_store import PROFILES, atomic_json
 from .slow_inference import run_slow
 
 
-def run(args):
+def run_batch(args, stop):
     directory=Path(args.job)
     job_file=directory/'job.json'
     plan_file=directory/'program.json'
@@ -54,27 +54,33 @@ def run(args):
         tokenizer.save_pretrained(directory/'tokenizer')
         atomic_json(plan_file,program)
         atomic_json(job_file,settings)
-    stop=threading.Event()
-    previous=signal.signal(signal.SIGINT,lambda *_:stop.set())
-    try:
-        with ExitStack() as stack:
-            client=stack.enter_context(httpx.Client(follow_redirects=True,timeout=60,trust_env=False))
-            execution={}
-            if settings.get('tile_endpoints'):
-                from .tile_worker import TileClient,TilePool
-                if not args.tile_config:raise SystemExit('Informe --tile-config com o segredo do executor')
-                secret=json.loads(Path(args.tile_config).read_text(encoding='utf8'))['tile_secret']
-                verify=ssl.create_default_context(cafile=args.ca) if args.ca else True
-                worker=stack.enter_context(httpx.Client(timeout=30,verify=verify,trust_env=False))
-                endpoints=settings['tile_endpoints']
-                execution=dict(kernel=TilePool([TileClient(url,secret,worker) for url in endpoints]),
-                               kernel_id='tile-rpc-v1:'+','.join(endpoints))
-            result=asyncio.run(run_slow(program,settings['ids'],directory,
-                 settings['tokens'],settings['eos'],client,maximum_tiles=args.max_tiles,
-                 tile_rows=settings['tile_rows'],tile_columns=settings['tile_columns'],
-                 maximum_bytes=settings['maximum_bytes'],cancel=stop,**execution))
-    finally:signal.signal(signal.SIGINT,previous)
+    with ExitStack() as stack:
+        client=stack.enter_context(httpx.Client(follow_redirects=True,timeout=60,trust_env=False))
+        execution={}
+        if settings.get('tile_endpoints'):
+            from .tile_worker import TileClient,TilePool
+            if not args.tile_config:raise SystemExit('Informe --tile-config com o segredo do executor')
+            secret=json.loads(Path(args.tile_config).read_text(encoding='utf8'))['tile_secret']
+            verify=ssl.create_default_context(cafile=args.ca) if args.ca else True
+            worker=stack.enter_context(httpx.Client(timeout=30,verify=verify,trust_env=False))
+            endpoints=settings['tile_endpoints']
+            execution=dict(kernel=TilePool([TileClient(url,secret,worker) for url in endpoints]),
+                           kernel_id='tile-rpc-v1:'+','.join(endpoints))
+        result=asyncio.run(run_slow(program,settings['ids'],directory,
+             settings['tokens'],settings['eos'],client,maximum_tiles=args.max_tiles,
+             tile_rows=settings['tile_rows'],tile_columns=settings['tile_columns'],
+             maximum_bytes=settings['maximum_bytes'],cancel=stop,**execution))
     result['text']=tokenizer.decode(result['generated'],skip_special_tokens=True)
     result['model']=program['model']
     atomic_json(directory/'last-result.json',result)
+    return result
+
+
+def run(args):
+    stop=threading.Event()
+    previous=signal.signal(signal.SIGINT,lambda *_:stop.set())
+    try:
+        result=run_batch(args,stop)
+    finally:
+        signal.signal(signal.SIGINT,previous)
     print(json.dumps(result,ensure_ascii=False,indent=2))

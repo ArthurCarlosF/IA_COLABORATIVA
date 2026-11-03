@@ -4,6 +4,8 @@ O serviço de microblocos exige segredo próprio, HMAC com timestamp, recibo vin
 
 No modo lento, o provedor dos pesos observa os intervalos solicitados. As linhas de embeddings e os especialistas acessados dependem da entrada; esse modo não oferece privacidade do padrão de acesso contra o provedor.
 
+O painel de blocos exige token do operador e acesso local. Os perfis são predefinidos e o navegador não configura endpoints, caminhos nem comandos. A pergunta vai ao subprocesso por arquivo local, fora da linha de comando. Preserve as permissões da pasta de trabalhos e não exponha essas rotas por proxy reverso.
+
 A base é um protótipo para computadores confiáveis. Não disponibilizar como rede pública de participantes anônimos.
 
 - Loopback por padrão. Serviços remotos exigem HTTPS com validação de certificado.

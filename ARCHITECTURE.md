@@ -1,5 +1,9 @@
 # Arquitetura
 
+## Trabalhos locais pelo painel — 03/11/2026
+
+As rotas `/api/slow/jobs` exigem a conta do operador e uma conexão local. Cada trabalho guarda o pedido, o programa, o tokenizer e os checkpoints em diretório próprio. O coordenador supervisiona um subprocesso por lote, sem bloquear o chat. Uma trava SQLite na raiz dos trabalhos impede que outro subprocesso execute um lote web ao mesmo tempo, inclusive se o coordenador cair. A pausa cooperativa é sinalizada por um arquivo específico do lote. Após o encerramento, é possível retomar usando as transações confirmadas.
+
 ## Grafo interno e checkpoint de cálculo — 02/11/2026
 
 O formato graph-f32-v1 descreve embeddings, atenção com KV local, roteadores, especialistas, linhas das projeções e cabeça de saída. O coordenador reúne ativações e escolhe especialistas pelo top-k. Os participantes armazenam somente suas atribuições. O orçamento padrão dos perfis grandes em grafo é 1B de parâmetros por worker; a instalação valida formas e intervalos dos tensores reais. Atenção ainda é uma unidade do grafo residente; o modo em trânsito divide suas projeções lineares em linhas e colunas.

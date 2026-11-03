@@ -17,7 +17,15 @@ O limite de memória dos blocos cobre arrays de cálculo. O Python, as bibliotec
 
 O plano gera um assignment por participante. Use os comandos de rede e TLS descritos em MODELOS.md. Os planos de 512, 1.024 e 4.096 participantes foram calculados com o índice real, sem provisionar pesos. A divisão tem 10.074 operações internas. A maior atribuição tem, respectivamente, 943.841.280, 471.920.640 e 163.584.256 parâmetros. O planejador é heurístico e a memória precisa acomodar a parte de cada participante. A rede física com milhares de computadores ainda não foi validada.
 
-## Iniciar, pausar e retomar
+## Iniciar, pausar e retomar na interface
+
+Inicie `run-coder.ps1` e abra `http://127.0.0.1:8400` com o token do operador local. Ao lado de **Parar** no chat, abra **Modo lento**. Escolha o modelo, escreva a pergunta e defina quantos blocos o lote pode calcular (1 a 1.024). Para uma primeira leitura parcial do 480B, use um bloco.
+
+**Pausar** sinaliza o subprocesso para parar numa fronteira segura. **Executar próximo lote** continua o mesmo trabalho. Fechar a janela permite que o lote siga até atingir o limite. Após reiniciar o coordenador, reabra o trabalho no histórico e inicie outro lote. A tela mostra a posição, a saída acumulada e as métricas do último lote terminado. Mantenha a pasta `runtime/network/coordinator/runtime/slow-jobs` em disco local e privada.
+
+Este painel executa localmente na CPU, em subprocesso separado. Há um lote por coordenador de cada vez. A seleção do painel é independente do checkpoint ativo no chat, e a execução local tem contabilidade separada. Para usar executores de blocos configurados em outros computadores, use a CLI abaixo.
+
+## Iniciar, pausar e retomar pela CLI
 
 Experimento limitado a **um bloco**, para conferir a leitura parcial:
 
@@ -30,7 +38,7 @@ A segunda invocação continua o mesmo trabalho. Sem `--max-tiles`, prossegue at
 
 Não há expiração por duração. Preserve a pasta do trabalho, o ambiente numérico e o acesso à revisão dos pesos. Uma pausa de um ano não foi testada; a retomada de processo foi. A quantidade de tokens/contexto continua limitada pelo motor. Saídas intermediárias e KV consomem disco conforme a tarefa progride.
 
-`last-result.json` informa se terminou ou pausou, posição, tokens e bytes de pesos lidos nessa invocação. `source_weight_bytes` exclui metadados e tokenizer. O modo lento é iniciado pela CLI. Ele não debita nem distribui créditos de rede nesta fase.
+`last-result.json` informa se terminou ou pausou, posição, tokens e bytes de pesos lidos nessa invocação. `source_weight_bytes` exclui metadados e tokenizer. O modo lento não debita nem distribui créditos de rede nesta fase.
 
 ## Dividir pequenos cálculos entre aparelhos
 
@@ -59,8 +67,9 @@ Já existe o executor de referência para computadores e um ensaio com um bloco 
 
 ## O que foi demonstrado
 
+- **Painel, via HTTP:** um novo trabalho real do 480B confirmou um bloco por lote e retomou da coluna 4.096 até a 6.144 da primeira projeção. A carteira do chat ficou intacta. Um pedido de pausa durante outro lote confirmou mais dois blocos antes de parar. Nenhum token completo foi produzido.
 - **480B real, parcial:** dois blocos da mesma matriz calculados em duas invocações. O SQLite avançou de 64 para 128 colunas. Cada invocação leu 25.088 bytes de pesos (embedding, normalização e bloco da matriz). Nenhuma resposta completa do 480B foi gerada.
-- **Dois executores leves:** os mesmos dois blocos reais do 480B foram enviados a dois processos HTTP separados, um bloco por processo. Cada bloco ocupou 1.344 bytes de arrays, sob orçamento de 2 KiB. A soma parcial foi idêntica bit a bit à execução local; 25.600 bytes de pesos foram lidos nessa invocação. Reproduzível com tools/verify_real_tiles.py e o checkpoint local de dois blocos.
+- **Dois executores leves:** os mesmos dois blocos reais do 480B foram enviados a dois processos HTTP separados, um bloco por processo. Cada bloco ocupou 1.344 bytes de arrays, sob orçamento de 2 KiB. A soma parcial foi idêntica bit a bit à execução local. Foram lidos 25.600 bytes de pesos nessa invocação. Para repetir, use `tools/verify_real_tiles.py --job PASTA` e uma referência local parada em exatamente dois blocos.
 - **Grafo MoE pequeno sintético:** dois processos worker HTTP reais, quatro passos, erro máximo dos logits de aproximadamente 2,24×10⁻⁸ contra Transformers 4.51.3. Isso verifica a matemática e o transporte, não a qualidade do 480B.
 - **Geração lenta pequena sintética:** duas pausas e retomadas; quatro tokens finais iguais à referência. Reabrir o trabalho já concluído não voltou a buscar pesos.
 - **Interrupção de processo:** uma matriz retomou da coluna já confirmada após saída abrupta; o resultado correspondeu à multiplicação completa. Erros de integridade e orçamento insuficiente foram recusados.

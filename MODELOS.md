@@ -8,6 +8,8 @@ O objetivo é executar um único checkpoint maior que a capacidade individual do
 
 O seletor abaixo da mensagem oferece perfis com revisão fixa: Qwen2.5-Coder 0,5B, 1,5B e 32B, Qwen2.5 geral 0,5B e 72B e Qwen3-Coder-480B. Os modelos ausentes aparecem como “preparar na rede”. Somente o operador local pode alterar o checkpoint global. Nesta versão a rede executa um checkpoint por vez; não há pools de modelos simultâneos.
 
+O painel **Modo lento** tem seleção própria. Um trabalho local carrega pesos por pequenos intervalos e mantém a revisão escolhida ao retomar. Escolher um modelo nesse painel não ativa o checkpoint para o chat distribuído.
+
 Escolher um perfil inicia uma tarefa de preparação. A rede exige que todas as sessões e agentes estejam encerrados, consulta recursos dos workers e calcula partições contíguas conforme o orçamento disponível. RAM do mesmo host e VRAM do mesmo dispositivo não devem ser contadas novamente por processo. Estimativas reservam margem para execução; não são garantia contra mudanças de uso dos outros programas ou falhas do hardware.
 
 Se não couber, a troca é recusada antes de baixar pesos. Se couber, cada worker recebe apenas seu assignment e busca os intervalos HTTP correspondentes aos seus tensores. Respostas HTTP que tentem entregar um arquivo inteiro são recusadas sem consumir o corpo. Blocos de transferência limitados a 8 MiB são convertidos para FP32 e gravados diretamente em arquivos locais. Não há AutoModelForCausalLM completo neste fluxo. Mesmo um arquivo safetensors de origem que contenha várias partições é acessado somente pelos intervalos necessários.
