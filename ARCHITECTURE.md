@@ -1,5 +1,13 @@
 # Arquitetura
 
+## Grafo interno e checkpoint de cálculo — 02/11/2026
+
+O formato graph-f32-v1 descreve embeddings, atenção com KV local, roteadores, especialistas, linhas das projeções e cabeça de saída. O coordenador reúne ativações e escolhe especialistas pelo top-k. Os participantes armazenam somente suas atribuições. O orçamento padrão dos perfis grandes em grafo é 1B de parâmetros por worker; a instalação valida formas e intervalos dos tensores reais. Atenção ainda é uma unidade do grafo residente; o modo em trânsito divide suas projeções lineares em linhas e colunas.
+
+O modo slow-run usa somente metadados e pequenos blocos de pesos. A posição da soma parcial e seu conteúdo são confirmados na mesma transação SQLite. KV e resultado de atenção são confirmados por operação/posição, permitindo repetir com segurança uma geração interrompida. O protocolo tile/matmul é separado do RPC de camadas: participantes de blocos não carregam modelo. A lista de executores é configurada pelo operador, e só há tentativa alternativa antes do commit da soma. Não há expiração por tempo no trabalho local. Veja docs/MODO-LENTO.md para limites e provas executadas.
+
+O grafo em rede usa unidades operação-token efetivamente reportadas para repartir créditos, conservando a cobrança total e sem multiplicar novamente as unidades por tokens. Não é uma estimativa de FLOPs ou energia. O modo lento e os executores de microblocos ainda não liquidam créditos. A descoberta autorizada aceita até 8.192 identidades e mantém lotes de até 64 anúncios por troca; essa capacidade de configuração não é uma medição de escala física.
+
 ## Caminho real de um token
 
 Navegador → POST /api/chat → tokenizer no coordenador → worker inicial (embedding de tokens + posições, camadas iniciais) → ativações float32 → worker final (camadas restantes, LayerNorm, LM head) → logits → argmax no coordenador → SSE no navegador.

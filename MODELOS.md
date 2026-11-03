@@ -1,10 +1,12 @@
 # Modelos por partição e troca real
 
+**Atualização:** [modo lento e grafo interno](docs/MODO-LENTO.md) descreve a divisão de matrizes/especialistas, o perfil Qwen3-Coder-480B e a retomada durável. O perfil 480B está disponível para preparar em uma rede com orçamento suficiente; apenas blocos parciais desse checkpoint foram executados nesta etapa.
+
 O objetivo é executar um único checkpoint maior que a capacidade individual dos participantes. Cada máquina mantém somente seus pesos e KV cache. O coordenador guarda configurações, tokenizer, nomes/formatos/intervalos dos tensores e atribuições, não precisa guardar todos os pesos.
 
 ## Seleção na interface
 
-O seletor abaixo da mensagem oferece perfis com revisão fixa: Qwen2.5-Coder 0,5B, 1,5B e 32B, Qwen2.5 geral 0,5B e 72B. Os modelos ausentes aparecem como “preparar na rede”, sem fingir que estão carregados. Somente o operador local pode alterar o checkpoint global. Nesta versão a rede executa um checkpoint por vez; não há pools de modelos simultâneos.
+O seletor abaixo da mensagem oferece perfis com revisão fixa: Qwen2.5-Coder 0,5B, 1,5B e 32B, Qwen2.5 geral 0,5B e 72B e Qwen3-Coder-480B. Os modelos ausentes aparecem como “preparar na rede”. Somente o operador local pode alterar o checkpoint global. Nesta versão a rede executa um checkpoint por vez; não há pools de modelos simultâneos.
 
 Escolher um perfil inicia uma tarefa de preparação. A rede exige que todas as sessões e agentes estejam encerrados, consulta recursos dos workers e calcula partições contíguas conforme o orçamento disponível. RAM do mesmo host e VRAM do mesmo dispositivo não devem ser contadas novamente por processo. Estimativas reservam margem para execução; não são garantia contra mudanças de uso dos outros programas ou falhas do hardware.
 
@@ -38,7 +40,7 @@ O lançador run-coder.ps1 continua sendo validação local com dois processos, n
 - 32B e 72B não foram executados. Não existe segundo computador físico nesta sessão. Listar um perfil ou gerar seu plano não demonstra sua inferência, velocidade nem qualidade.
 - Execução atual usa FP32, contexto de até 4096 tokens e saída de até 512 no Qwen; KV por worker tem orçamento próprio. Quantização, transporte comprimido, contexto ampliado, GPU/heterogeneidade e testes físicos ainda precisam de trabalho/validação.
 
-Arquiteturas suportadas no novo fluxo: Qwen2 sem sliding window, em perfis autorizados e revisões fixas. Hashes locais detectam corrupção; HTTPS e intervalos validados protegem o transporte. Não há prova Merkle dos intervalos contra o hash do checkpoint completo, prova de correção neural, privacidade contra workers hostis nem segurança pública sem confiança.
+Arquiteturas suportadas: Qwen2 sem sliding window e o grafo Qwen3 MoE do perfil autorizado, com revisões fixas. 72B e 480B usam o grafo no planejamento padrão; outros Qwen2 podem usar a opção --graph. Arquiteturas diferentes exigem adaptadores. Hashes locais detectam corrupção; HTTPS e intervalos validados protegem o transporte. Não há prova Merkle dos intervalos contra o hash do checkpoint completo, prova de correção neural, privacidade contra workers hostis nem segurança pública sem confiança.
 
 Um modelo maior não implica equivalência ao Codex. Qualidade precisa de tarefas e avaliações comparáveis. O agente de ferramentas continua experimental; os sucessos de troca, distribuição e transporte não substituem a avaliação da sua autonomia.
 

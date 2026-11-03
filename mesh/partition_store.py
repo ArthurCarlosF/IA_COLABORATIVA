@@ -11,6 +11,7 @@ import httpx
 CHUNK=8*1024*1024
 DTYPES={'F32':4,'F16':2,'BF16':2}
 PROFILES={
+ 'coder-480b':('Qwen/Qwen3-Coder-480B-A35B-Instruct','9d90cf8fca1bf7b7acca42d3fc9ae694a2194069'),
  'general-0.5b':('Qwen/Qwen2.5-0.5B-Instruct','7ae557604adf67be50417f59c2c2f167def9a775'),
  'coder-0.5b':('Qwen/Qwen2.5-Coder-0.5B-Instruct','ea3f2471cf1b1f0db85067f1ef93848e38e88c25'),
  'coder-1.5b':('Qwen/Qwen2.5-Coder-1.5B-Instruct','2e1fd397ee46e1388853d2af2c993145b0f1098a'),
@@ -107,6 +108,9 @@ def plan_remote(profile,parts,capacities=None,client=None):
     return result
 
 def validate_bundle(bundle):
+    if isinstance(bundle,dict) and bundle.get('format')=='graph-f32-v1':
+        from .graph_plan import validate_graph_bundle
+        return validate_graph_bundle(bundle)
     if bundle.get('format')!='range-f32-v1' or (bundle.get('model'),bundle.get('revision')) not in PROFILES.values():raise ValueError('Unapproved checkpoint')
     cfg=bundle['config'];spec=bundle['spec']
     if cfg.get('model_type')!='qwen2' or cfg.get('use_sliding_window') or not 0<=spec['start']<spec['end']<=cfg['num_hidden_layers']:raise ValueError('Invalid partition')
@@ -123,6 +127,9 @@ def validate_bundle(bundle):
     return sum(math.prod(e['shape'])*4 for e in bundle['tensors'].values())
 
 def provision(bundle,cache,progress=None,client=None):
+    if bundle.get('format')=='graph-f32-v1':
+        from .graph_plan import provision_graph
+        return provision_graph(bundle,cache,progress,client)
     import torch
     from transformers import Qwen2Config
     validate_bundle(bundle)

@@ -1,5 +1,7 @@
 # Dependências e instalação
 
+O executor de microblocos para computadores pode ser instalado separadamente com requirements-tile.txt, sem Torch ou Transformers. Ele precisa de Python, NumPy e bibliotecas HTTP. ESP32 e celular ainda exigem adaptadores próprios; não instalar o ambiente Python principal nesses aparelhos como se já fossem suportados. Para a comparação MoE de desenvolvimento, use um ambiente isolado com Transformers 4.51.3 e tools/make_moe_reference.py. O runtime principal continua em 4.44.2.
+
 A plataforma é independente de Codex e Claude. Quem já usa esses assistentes pode utilizá-los para ajudar na instalação ou no desenvolvimento, mas eles são opcionais: não fornecem os pesos do modelo, não substituem Python/Docker e não são chamados pela inferência desta plataforma. Nenhuma chave de API de IA é necessária para o perfil local.
 
 ## Obrigatórias

@@ -39,8 +39,8 @@ def create_coordinator(root,secret,user_token,allowed,db_path,verify=True,accoun
     manifest=json.loads((root/'manifest.json').read_text())
     tokenizer=AutoTokenizer.from_pretrained(root/'tokenizer',local_files_only=True)
     model_config=json.loads((root/'config.json').read_text())
-    context_limit=min(4096,model_config.get('max_position_embeddings',4096)) if model_config.get('model_type')=='qwen2' else 512
-    output_limit=512 if model_config.get('model_type')=='qwen2' else 128
+    context_limit=512 if model_config.get('model_type')=='gpt2' else min(4096,model_config.get('max_position_embeddings',4096))
+    output_limit=128 if model_config.get('model_type')=='gpt2' else 512
     if len(allowed)!=len(manifest['parts']):
         raise ValueError('Configure exatamente um worker por partição')
     assignments={worker_id:manifest['parts'][i] for i,worker_id in enumerate(allowed)}
@@ -61,7 +61,7 @@ def create_coordinator(root,secret,user_token,allowed,db_path,verify=True,accoun
     wallet.recover()
     metrics=dict(requests=0,failures=0,tokens=0,last_seconds=0,tokens_per_second=0,network_retries=0)
     from .partition_store import digest
-    fingerprints={s['index']:(digest(manifest['bundles'][s['index']]) if manifest.get('format')=='range-f32-v1' else checkpoint_hash(root/f"part-{s['index']}"/'weights.pt')) for s in manifest['parts']}
+    fingerprints={s['index']:(digest(manifest['bundles'][s['index']]) if 'bundles' in manifest else checkpoint_hash(root/f"part-{s['index']}"/'weights.pt')) for s in manifest['parts']}
     client=httpx.AsyncClient(timeout=20,verify=verify,trust_env=False,limits=httpx.Limits(keepalive_expiry=1))
 
     identity=json.loads(Path(peer_network['identity_files']['coordinator']).read_text()) if peer_network else None
@@ -161,7 +161,7 @@ def create_coordinator(root,secret,user_token,allowed,db_path,verify=True,accoun
     async def status(request:Request):
         user=auth(request)
         rows=[dict(id=k,url=n['url'],spec=n['spec'],resources=n['resources'],online=time.monotonic()-n['seen']<8) for k,n in nodes.items()]
-        return dict(model=manifest['model'],revision=manifest['revision'],nodes=rows,metrics=metrics,busy=bool(scheduler.active),scheduler=scheduler.status(),required_parts=len(manifest['parts']),assignments=assignments,ledger_valid=ledger.verify(),usage=wallet.snapshot(user),context_limit=context_limit,output_limit=output_limit)
+        return dict(model=manifest['model'],revision=manifest['revision'],nodes=rows,metrics=metrics,busy=bool(scheduler.active),scheduler=scheduler.status(),required_parts=len(manifest['parts']),logical_pieces=len(manifest.get('pieces',manifest['parts'])),assignments=assignments,ledger_valid=ledger.verify(),usage=wallet.snapshot(user),context_limit=context_limit,output_limit=output_limit)
 
     @app.get('/api/usage')
     async def usage(request:Request):
@@ -290,6 +290,10 @@ def create_coordinator(root,secret,user_token,allowed,db_path,verify=True,accoun
             value=pack(torch.tensor([ids],dtype=torch.long))
             generated=[]
             text=''
+            graph_mode=manifest.get('format')=='graph-f32-v1'
+            if graph_mode:
+                from .graph_executor import GraphExecutor
+                graph_executor=GraphExecutor(manifest,pipeline,rpc)
             try:
                 for iteration in range(output_budget):
                     if await request.is_disconnected():
@@ -297,16 +301,32 @@ def create_coordinator(root,secret,user_token,allowed,db_path,verify=True,accoun
                     length=value['shape'][1]
                     # Prefill em fatias limita o tempo exclusivo de uma entrada grande.
                     input_ids=ids if iteration==0 else [generated[-1]]
-                    chunks=[input_ids[i:i+32] for i in range(0,len(input_ids),32)]
+                    width=(model_config['hidden_size']+model_config.get('num_experts',0)
+                           if model_config.get('model_type')=='qwen3_moe'
+                           else model_config.get('intermediate_size',1))
+                    quantum=min(32,max(1,700000//width)) if graph_mode else 32
+                    chunks=[input_ids[i:i+quantum] for i in range(0,len(input_ids),quantum)]
                     total_units={node['id']:0 for node in pipeline}
                     total_seconds={node['id']:0.0 for node in pipeline}
+                    total_inputs={node['id']:0 for node in pipeline}
                     proofs={node['id']:[] for node in pipeline}
                     for chunk in chunks:
                         async with scheduler.turn(user,request.is_disconnected):
                             if await request.is_disconnected():raise asyncio.CancelledError()
                             value=pack(torch.tensor([chunk],dtype=torch.long))
-                            for node in pipeline:
-                                reply=await rpc(node,'/step',dict(session=sid,position=position,tensor=value,model_fingerprint=fingerprints[node['spec']['index']]))
+                            if graph_mode:
+                                logits,records=await graph_executor.step(
+                                    torch.tensor([chunk],dtype=torch.long),sid,position)
+                                value=pack(logits)
+                            else:
+                                records=[]
+                                for node in pipeline:
+                                    reply=await rpc(node,'/step',dict(session=sid,position=position,tensor=value,model_fingerprint=fingerprints[node['spec']['index']]))
+                                    records.append((node,reply))
+                                    value=reply['tensor']
+                            for worker_id in {node['id'] for node,_ in records}:
+                                total_inputs[worker_id]+=len(chunk)
+                            for node,reply in records:
                                 expected=position+len(chunk)
                                 if reply['position']!=expected or reply['units']!=len(chunk)*(node['spec']['end']-node['spec']['start']):
                                     raise ValueError('Resposta inconsistente do worker')
@@ -315,13 +335,19 @@ def create_coordinator(root,secret,user_token,allowed,db_path,verify=True,accoun
                                 if reply.get('proof'):proofs[node['id']].append(reply['proof'])
                                 total_units[node['id']]+=reply['units']
                                 total_seconds[node['id']]+=reply['seconds']
-                                value=reply['tensor']
                             position+=len(chunk)
-                    completed=[(node,dict(units=total_units[node['id']],seconds=total_seconds[node['id']],proofs=proofs[node['id']])) for node in pipeline]
+                    completed=[(node,dict(units=total_units[node['id']],seconds=total_seconds[node['id']],proofs=proofs[node['id']])) for node in pipeline if total_units[node['id']]]
                     logits=unpack(value)
                     if list(logits.shape)!=[1,1,manifest.get('vocab_size',tokenizer.vocab_size)]:raise ValueError('Logits inválidos')
                     cost=len(ids)+1 if iteration==0 else 1
-                    wallet.settle(sid,iteration,cost,[dict(id=node['id'],owner=owners[node['id']],layers=node['spec']['end']-node['spec']['start'],input_tokens=length,receipts=reply['proofs']) for node,reply in completed])
+                    contributions=[]
+                    for node,reply in completed:
+                        item=dict(id=node['id'],owner=owners[node['id']],
+                                  layers=node['spec']['end']-node['spec']['start'],
+                                  input_tokens=total_inputs[node['id']],receipts=reply['proofs'])
+                        if graph_mode:item['work_units']=reply['units']
+                        contributions.append(item)
+                    wallet.settle(sid,iteration,cost,contributions)
                     for node,reply in completed:
                         ledger.append(f"{sid}:{iteration}:{node['id']}",user,node['id'],reply['units'],reply['seconds'],proof=reply['proofs'])
                     token=int(logits[0,-1].argmax())
@@ -430,12 +456,12 @@ def create_coordinator(root,secret,user_token,allowed,db_path,verify=True,accoun
         if len(new_manifest['parts'])!=len(allowed):raise ValueError('Worker count changed')
         new_tokenizer=AutoTokenizer.from_pretrained(new_root/'tokenizer',local_files_only=True)
         new_config=json.loads((new_root/'config.json').read_text())
-        new_fingerprints={part['index']:(digest(new_manifest['bundles'][part['index']]) if new_manifest.get('format')=='range-f32-v1' else checkpoint_hash(new_root/f"part-{part['index']}"/'weights.pt')) for part in new_manifest['parts']}
+        new_fingerprints={part['index']:(digest(new_manifest['bundles'][part['index']]) if 'bundles' in new_manifest else checkpoint_hash(new_root/f"part-{part['index']}"/'weights.pt')) for part in new_manifest['parts']}
         root=new_root;manifest=new_manifest;tokenizer=new_tokenizer;model_config=new_config
         if gossip:gossip.directory.capability.update(model=manifest['model'],revision=manifest['revision'])
         fingerprints=new_fingerprints;assignments={key:manifest['parts'][i] for i,key in enumerate(allowed)}
-        context_limit=min(4096,model_config.get('max_position_embeddings',4096)) if model_config.get('model_type')=='qwen2' else 512
-        output_limit=512 if model_config.get('model_type')=='qwen2' else 128
+        context_limit=512 if model_config.get('model_type')=='gpt2' else min(4096,model_config.get('max_position_embeddings',4096))
+        output_limit=128 if model_config.get('model_type')=='gpt2' else 512
     from .model_control import ModelControl
     model_control=ModelControl(app,auth,allowed,nodes,rpc,current_model,apply_model,catalog,lambda:not scheduler.active and not agent.active,lambda:(context_limit,output_limit))
     app.state.model_control=model_control

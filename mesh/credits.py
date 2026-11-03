@@ -124,15 +124,18 @@ CREATE TABLE IF NOT EXISTS credit_events (
             return int(output)
 
     def settle(self,sid,iteration,cost_tokens,workers):
-        """workers: id, owner, layers, input_tokens; somente passos completos."""
+        """Workers report layers or explicit graph work units; only complete steps."""
         if type(cost_tokens) is not int or cost_tokens<1 or type(iteration) is not int or iteration<0:
             raise ValueError('Liquidação inválida')
         if not workers or len({w['id'] for w in workers})!=len(workers):raise ValueError('Workers inválidos')
         if any(type(w['layers']) is not int or w['layers']<1 or type(w['input_tokens']) is not int or w['input_tokens']<1 for w in workers):
             raise ValueError('Contribuição inválida')
+        if any('work_units' in w and (type(w['work_units']) is not int or w['work_units']<1)
+               for w in workers):
+            raise ValueError('Unidades de operação inválidas')
         receipt=f'settle:{sid}:{iteration}'
         amount=cost_tokens*SCALE
-        total_layers=sum(w['layers'] for w in workers)
+        total_layers=sum(w.get('work_units',w['layers']) for w in workers)
         with self.transaction():
             row=self.db.execute('SELECT account,day,daily_left,extra_left,status FROM credit_reservations WHERE id=?',(sid,)).fetchone()
             if row is None:raise ValueError('Reserva desconhecida')
@@ -152,7 +155,7 @@ CREATE TABLE IF NOT EXISTS credit_events (
             distributed=0
             rewards=[]
             for index,worker in enumerate(workers):
-                share=amount-distributed if index==len(workers)-1 else amount*worker['layers']//total_layers
+                share=amount-distributed if index==len(workers)-1 else amount*worker.get('work_units',worker['layers'])//total_layers
                 distributed+=share
                 owner=worker['owner']
                 self._account(owner)
@@ -160,7 +163,7 @@ CREATE TABLE IF NOT EXISTS credit_events (
                 # Só trabalho para outras pessoas aparece como contribuição remunerada.
                 if owner!=user:
                     self.db.execute('UPDATE credit_accounts SET extra=extra+?,earned=earned+?,processed=processed+?,layer_tokens=layer_tokens+? WHERE id=?',
-                                    (reward,reward,worker['input_tokens'],worker['input_tokens']*worker['layers'],owner))
+                                    (reward,reward,worker['input_tokens'],worker.get('work_units',worker['input_tokens']*worker['layers']),owner))
                 rewards.append(dict(worker=worker['id'],owner=owner,amount=reward,self_work=owner==user))
             assert sum(r['amount'] for r in rewards)<=amount
             self._event(receipt,'settlement',**identity,daily_spent=spent_daily,extra_spent=spent_extra,rewards=rewards)
@@ -212,7 +215,7 @@ CREATE TABLE IF NOT EXISTS credit_events (
                         account[0]+=reward['amount']
                         account[1]+=reward['amount']
                         account[3]+=w['input_tokens']
-                        account[4]+=w['input_tokens']*w['layers']
+                        account[4]+=w.get('work_units',w['input_tokens']*w['layers'])
             elif kind in ('release','recovery'):
                 r=reservations[e['session']]
                 days[r[0],r[1]][2]-=e['daily_refund']

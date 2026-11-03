@@ -28,6 +28,11 @@ jobs:
           python -m pip install -e . --no-deps
       - name: Prepare real model
         run: python -m mesh prepare
+      - name: Build independent synthetic MoE reference
+        run: |
+          python -m venv --system-site-packages .venv-moe-reference
+          .venv-moe-reference/bin/python -m pip install transformers==4.51.3
+          .venv-moe-reference/bin/python tools/make_moe_reference.py
       - name: Prepare approved isolated test image
         run: |
           docker pull python:3.11-slim@sha256:db20d8506e2f15b6db39b40b6015ca46bae855dec6dd326d462cfe79ae972893
@@ -39,5 +44,8 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: test-evidence
-          path: runtime/test-evidence.json
+          path: |
+            runtime/test-evidence.json
+            runtime/moe-rpc-evidence.json
+            runtime/moe-slow-evidence.json
           if-no-files-found: ignore

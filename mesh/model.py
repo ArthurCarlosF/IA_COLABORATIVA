@@ -154,6 +154,10 @@ class QwenShard(torch.nn.Module):
 
 
 def Shard(directory,device='cpu'):
+    blueprint=Path(directory)/'blueprint.json'
+    if blueprint.exists() and json.loads(blueprint.read_text()).get('format')=='graph-f32-v1':
+        from .graph_model import GraphShard
+        return GraphShard(directory,device)
     config=AutoConfig.from_pretrained(directory)
     cls={'gpt2':GPT2Shard,'qwen2':QwenShard}.get(config.model_type)
     if cls is None:raise ValueError('Arquitetura não suportada')

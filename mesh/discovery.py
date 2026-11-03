@@ -8,11 +8,14 @@ import json
 from pathlib import Path
 import threading
 import time
+import random
 from urllib.parse import urlsplit
 import httpx
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey,Ed25519PublicKey
 from cryptography.hazmat.primitives import serialization
 from .protocol import encode
+MAX_PEERS=8192
+EXCHANGE_PEERS=64
 
 
 def new_identity():
@@ -35,7 +38,7 @@ class PeerDirectory:
         self.identity=identity
         self.endpoint=safe_endpoint(endpoint)
         self.trusted=trusted
-        if not 1<=len(trusted)<=64:raise ValueError('Limite de 64 identidades autorizadas')
+        if not 1<=len(trusted)<=MAX_PEERS:raise ValueError('Limite de 8192 identidades autorizadas')
         self.clock=now or time.time
         self.capability=capability
         self.key=Ed25519PrivateKey.from_private_bytes(bytes.fromhex(identity['private_key']))
@@ -53,9 +56,9 @@ class PeerDirectory:
         self.last_issued=0
         self.stats=dict(accepted=0,rejected=0,exchanges=0,last_error=None)
         if self.state_path and self.state_path.exists():
-            if self.state_path.stat().st_size>1024*1024:raise ValueError('Arquivo de contatos excede limite')
+            if self.state_path.stat().st_size>64*1024*1024:raise ValueError('Arquivo de contatos excede limite')
             cached=json.loads(self.state_path.read_text(encoding='utf8'))
-            for record in cached[:64]:
+            for record in cached[:MAX_PEERS]:
                 try:self.accept(record,persist=False)
                 except (ValueError,KeyError,TypeError):pass
 
@@ -105,6 +108,13 @@ class PeerDirectory:
             now=int(self.clock()*1000)
             return [record for record in self.records.values() if record['payload']['expires_ms']>now]
 
+    def exchange_batch(self):
+        records=self.snapshot()
+        if len(records)<=EXCHANGE_PEERS:return records
+        own=[r for r in records if r['payload']['peer_id']==self.identity['peer_id']]
+        others=[r for r in records if r['payload']['peer_id']!=self.identity['peer_id']]
+        return own+random.sample(others,EXCHANGE_PEERS-len(own))
+
 class Gossip:
     def __init__(self,directory,seeds,verify=True):
         self.directory=directory
@@ -128,7 +138,8 @@ class Gossip:
                     self.stop.wait(2)
                     continue
                 contacts=list(dict.fromkeys([*self.seeds,*[r['payload']['endpoint'] for r in self.directory.snapshot()]]))
-                for url in contacts[:8]:
+                contacts=[url for url in contacts if url!=self.directory.endpoint]
+                for url in random.sample(contacts,min(8,len(contacts))):
                     if self.stop.is_set():break
                     if url==self.directory.endpoint:continue
                     try:
@@ -143,8 +154,9 @@ class Gossip:
                         records=json.loads(data)['records']
                         if not isinstance(records,list) or len(records)>64:raise ValueError('Lista inválida')
                         for record in records:
-                            try:self.directory.accept(record)
+                            try:self.directory.accept(record,persist=False)
                             except ValueError:pass
+                        with self.directory.lock:self.directory._save()
                         self.directory.stats['exchanges']+=1
                         self.directory.stats['last_error']=None
                     except Exception as exc:self.directory.stats['last_error']=type(exc).__name__
@@ -163,7 +175,7 @@ def attach(app,identity_file,endpoint,trusted,seeds,capability,verify=True,state
     app.state.peers=directory
     @app.get('/p2p/peers')
     async def peers():
-        return dict(records=directory.snapshot(),mode='signed-permissioned-gossip')
+        return dict(records=directory.exchange_batch(),mode='signed-permissioned-gossip')
     @app.post('/p2p/announce')
     async def announce(request:Request):
         body=bytearray()

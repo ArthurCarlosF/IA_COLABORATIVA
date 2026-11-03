@@ -20,3 +20,5 @@
 
 - Para modelos grandes, usar plan-model/assignment e HTTP parcial. Nunca baixar/carregar o checkpoint completo como atalho para preparar as partes.
 - Plano ou perfil cadastrado não significa modelo executado; registrar atribuições, bytes por worker e validação real separadamente.
+- Distinguir blocos de um checkpoint real, geração sintética de referência e execução integral de um modelo grande. Não anunciar ESP32/celular sem teste nativo.
+- Preservar checkpoints de trabalhos lentos; retomar com revisão/modelo e ambiente numérico compatíveis, sem apagar progresso ou baixar o checkpoint inteiro.

@@ -1,5 +1,11 @@
 # Como continuar
 
+## Retomar a demonstração atual
+
+Execute python -m mesh slow-run --job runtime/slow-480b-proof --max-tiles 1 usando o ambiente existente para avançar mais um bloco real do 480B. Para repetir os dois blocos com dois processos, preserve a referência no ponto de duas confirmações e use tools/verify_real_tiles.py. Novas instalações devem seguir docs/MODO-LENTO.md. Para validação numérica MoE, gere a referência sintética isolada com tools/make_moe_reference.py; o ambiente principal mantém Transformers 4.44.2.
+
+Próximas provas: portar o protocolo de blocos para firmware/app, medir RAM total em aparelho físico, validar TLS e retomada após perda de energia, e testar a execução integral com computadores que caibam no plano de 72B/480B. Ainda faltam integração de trabalhos lentos ao chat/créditos e medições de recuperação/latência em escala.
+
 1. Leia AGENTS.md, ARCHITECTURE.md, PROGRESS.md e TEST_RESULTS.md.
 2. Abra D:/Projetos/RedeInferencia. Se os serviços não estiverem ativos, execute run-local.ps1.
 3. Abra http://127.0.0.1:8000; token está em runtime/config.json (não publicar esse arquivo).

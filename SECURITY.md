@@ -1,5 +1,9 @@
 # Segurança da versão inicial
 
+O serviço de microblocos exige segredo próprio, HMAC com timestamp, recibo vinculado ao corpo e limites de tamanho/memória. Fora de loopback, exige TLS. Ele executa apenas multiplicação FP32, sem ferramentas ou shell. Checkpoints lentos não incluem o segredo, mas guardam prompts/tokens e ativações: mantenha a pasta privada. Hashes detectam corrupção local e respostas alteradas em trânsito, sem provar correção de cálculo ou proteger contra um participante autorizado hostil.
+
+No modo lento, o provedor dos pesos observa os intervalos solicitados. As linhas de embeddings e os especialistas acessados dependem da entrada; esse modo não oferece privacidade do padrão de acesso contra o provedor.
+
 A base é um protótipo para computadores confiáveis. Não disponibilizar como rede pública de participantes anônimos.
 
 - Loopback por padrão. Serviços remotos exigem HTTPS com validação de certificado.

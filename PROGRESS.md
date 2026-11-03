@@ -1,5 +1,15 @@
 # Progresso — 02/11/2026
 
+## 480B, blocos pequenos e retomada
+
+Pausa solicitada pelo usuário: código salvo; trabalho real em runtime/slow-480b-proof com dois blocos confirmados, coluna 128 e nenhum token completo. O perfil normal em 8400 não foi reiniciado nesta etapa. Amanhã, retomar conforme NEXT_STEPS.md. O teste adicional do chat terminou: Qwen real do cache respondeu “2+2 equals 4.” com 98 operações e dois workers TLS, sem baixar pesos.
+
+Implementados adaptador de grafo Qwen2/Qwen3 MoE, planos por operações internas, carregamento parcial e modo lento. O plano real do 480B para 1.024 participantes tem 10.074 operações e maior atribuição de 471.920.640 parâmetros; 512 e 4.096 participantes também foram planejados abaixo de 1B por participante. O plano gravado ocupa 44,97 MiB de metadados/tokenizer e zero arquivos de pesos. O 72B foi planejado para 128 participantes e 324 operações, maior atribuição de 999.997.440 parâmetros.
+
+Dois blocos reais do 480B foram calculados e retomados em invocações separadas (64 → 128 colunas). Os mesmos blocos foram despachados a dois processos pequenos, um por processo, sob orçamento de arrays de 2 KiB. A soma parcial coincidiu bit a bit com o resultado local. Nenhum token completo do 480B foi produzido. O modelo MoE sintético executou quatro passos em dois workers HTTP com erro máximo 2,2351741790771484e-08; a geração lenta dele retomou e produziu os quatro tokens da referência.
+
+Documentação: docs/MODO-LENTO.md. Sem firmware ESP32/app celular, sem validação de milhares de computadores físicos e sem execução integral dos modelos grandes. A pasta runtime/slow-480b-proof permite retomar exatamente a demonstração parcial; seus dados não entram no Git.
+
 Projeto criado em D:/Projetos/RedeInferencia. Ambiente Python 3.11 em .venv com PyTorch 2.8.0 e Transformers 4.44.2. Dependências instaladas e checkpoint baixado com acesso de rede autorizado.
 
 Implementados coordenador, dois workers reais de camadas, KV cache, chat web com SSE, telemetria e créditos SQLite. Preparado tiny-gpt2 na revisão fixa 5f91d94bd9cd7190a9f3216ff93cd1dd95f2c7be2. Workers carregam somente sua partição.

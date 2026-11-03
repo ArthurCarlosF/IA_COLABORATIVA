@@ -1,5 +1,21 @@
 # Testes executados — 02/11/2026
 
+## Grafo MoE e retomada por microblocos
+
+- Chat real em grafo: tools/verify_graph_chat.py passou com dois workers TLS e 98 operações. Resposta “2+2 equals 4.”, auditoria válida, reservas liberadas e zero download de pesos. Evidência runtime/graph-chat-ab663c28db/report.json. O perfil de prova foi encerrado.
+
+- Fonte real 480B: revisão 9d90cf8fca1bf7b7acca42d3fc9ae694a2194069, 30.321 nomes de tensores e 241 arquivos no índice. Planejamento metadados com 512, 1.024 e 4.096 workers, 10.074 operações internas. Maiores atribuições: 943.841.280, 471.920.640 e 163.584.256 parâmetros, respectivamente. Plano CLI de 1.024 workers: 44,97 MiB e zero arquivos de pesos.
+- Fonte real 72B: plano por grafo para 128 workers, 324 operações e maior atribuição de 999.997.440 parâmetros. Nenhum peso baixado nessa validação. Evidência runtime/72b-graph-plan-evidence.json.
+- Referência sintética independente gerada no ambiente Transformers 4.51.3, preservando o runtime principal em 4.44.2. Dois processos worker HTTP reais compararam quatro passos com KV; maior erro absoluto dos logits 2,2351741790771484e-08 e argmax iguais. Evidência runtime/moe-rpc-evidence.json. Não é teste da qualidade do 480B.
+- Geração lenta sintética final: 17 blocos, pausa; 25 blocos, nova pausa; 110 blocos restantes, conclusão. Tokens finais 61, 37, 10, 30 iguais à referência; reabrir concluído não leu pesos. Rodada direcionada: 1 passed in 14.59s. Evidência runtime/moe-slow-evidence.json.
+- 480B real, duas invocações limitadas a um bloco: arquivo de checkpoint manteve uma matriz em progresso, duas confirmações e coluna 128. Cada invocação leu 25.088 bytes de pesos. Sem token completo. Evidência runtime/slow-480b-proof. Sem instalar o arquivo inteiro de pesos.
+- tools/verify_real_tiles.py: os dois blocos reais executados em dois processos leves HTTP, um por processo, 1.344 bytes de arrays/bloco. Soma parcial bit a bit idêntica à local; 25.600 bytes de pesos lidos, nenhum token completo. Evidência runtime/real-microtiles-cae272ff6f/report.json.
+- Worker leve: 1 passed in 9.63s, processo HTTP real, resultado FP32, autenticação inválida recusada e limite de 2 KiB de arrays respeitado. Contabilidade e controlador: 18 passed in 71.76s, incluindo unidades do grafo e projeção auditável.
+
+As provas não medem milhares de máquinas, ESP32/celular, uma espera de um ano nem a inferência integral de 72B/480B. O modo lento não tem prazo de expiração da tarefa e foi testado por retomada de estado, não por tempo transcorrido de um ano.
+
+Regressão ampla: python -m pytest -q --basetemp=runtime/pytest-fine-grained-final, **93 passed, 2 skipped in 698.92s**. Docker permaneceu desabilitado; os dois skipped não são testes executados. Após os ajustes de unidades do grafo e lotes de descoberta, as rodadas direcionadas foram **18 passed in 71.76s** (créditos, controlador e tile worker) e **6 passed in 98.74s** (descoberta, interrupção durável e tile worker), respectivamente. O teste de descoberta verificou 72 identidades assinadas com lotes de 64, sem simular que fossem computadores físicos.
+
 ## Primeira execução
 
 Comando: `.venv/Scripts/python -m pytest -q --basetemp=runtime/pytest` com HF_HOME=data/hf.

@@ -1,5 +1,7 @@
 # IA Colaborativa — base de inferência distribuída
 
+**Blocos menores e modo retomável:** o [modo lento](docs/MODO-LENTO.md) lê fatias dos pesos, grava resultados parciais e continua após reinício. O grafo de execução tem perfis 72B e Qwen3-Coder-480B; a validação integral desses modelos em rede física continua pendente.
+
 **Comece por [LEIA-ME-PRIMEIRO.txt](LEIA-ME-PRIMEIRO.txt)**: visão, dimensão, princípios, funcionamento e estado real do projeto. Esse arquivo deve acompanhar as alterações relevantes.
 
 Um único checkpoint GPT-2 ou Qwen2 é dividido por camadas. Dois workers executam partes reais da rede; ativações atravessam HTTP autenticado. O coordenador não carrega o modelo completo na inferência.

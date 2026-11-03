@@ -32,3 +32,18 @@ def test_unknown_identity_and_ssrf_seed_denied(tmp_path):
     with pytest.raises(ValueError):Gossip(a,['http://169.254.169.254'])
     record=a.own_record();record['payload']['endpoint']='http://169.254.169.254'
     with pytest.raises(ValueError):b.accept(record)
+
+def test_large_authorized_roster_sends_bounded_exchange_batches():
+    identities=[new_identity() for _ in range(72)]
+    urls=[f'https://127.0.0.1:{10000+i}' for i in range(len(identities))]
+    roster={k['peer_id']:dict(public_key=k['public_key'],endpoints=[u])
+            for k,u in zip(identities,urls)}
+    directory=PeerDirectory(identities[0],urls[0],roster,{},now=lambda:1000.0)
+    directory.own_record()
+    for identity,url in zip(identities[1:],urls[1:]):
+        remote=PeerDirectory(identity,url,roster,{},now=lambda:1000.0)
+        assert directory.accept(remote.own_record(),persist=False)
+    assert len(directory.snapshot())==72
+    batch=directory.exchange_batch()
+    assert len(batch)==64
+    assert any(r['payload']['peer_id']==identities[0]['peer_id'] for r in batch)

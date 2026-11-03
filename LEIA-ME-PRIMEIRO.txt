@@ -251,3 +251,13 @@ Ainda faltam computadores físicos, rede pública/consenso, avaliação de quali
 Como obter: MODELOS.md descreve o novo fluxo. A apresentação anterior descrevia a limitação do preparador antigo; ela foi removida para o novo fluxo de metadados/intervalos, mantendo o caminho antigo apenas para regressões pequenas. Os grandes modelos ainda dependem da memória agregada de participantes reais e não foram anunciados como executados nesta máquina.
 
 Reinício real após seleção: o Qwen geral escolhido foi preservado e os dois workers voltaram usando suas próprias partições mapeadas. Créditos/ganhos e reservas foram preservados; pedido com identificador do checkpoint antigo retornou 409. A pasta selecionada do coordenador continha zero arquivos de pesos. Evidência: runtime/network/model-persistence-evidence.json. Sem novo download integral nem carga de referência para reiniciar. JavaScript passou em node --check; inspeção visual segue não realizada.
+
+ATUALIZAÇÃO — 02/11/2026: MODELOS GIGANTES, BLOCOS MENORES E RETOMADA
+
+O projeto agora divide também as operações internas do modelo. O plano real do Qwen3-Coder-480B distribuiu 10.074 operações em 512, 1.024 ou 4.096 participantes, com menos de 1 bilhão de parâmetros por participante. Esse planejamento usa somente metadados. Em rede, cada participante guarda apenas suas matrizes e especialistas; nenhuma máquina precisa armazenar o checkpoint inteiro.
+
+No modo lento, os pesos chegam por linhas e colunas conforme a necessidade. Somas parciais, posição, tokens e KV ficam em SQLite. O trabalho pode parar e retomar sem expirar pelo relógio. Uma máquina limitada pode avançar por pequenos blocos, pagando em tempo e tráfego em vez de manter todos os pesos disponíveis ao mesmo tempo. O limite de um bloco não é o limite total de RAM do Python, do contexto e da conexão.
+
+Os primeiros dois blocos reais do 480B foram calculados e retomados. A mesma soma foi reproduzida em dois processos leves, um bloco de 1.344 bytes de arrays por processo. O modelo gigante não foi instalado inteiro e ainda não respondeu uma pergunta completa. A geração íntegra do novo motor foi verificada num MoE sintético pequeno, com referência independente e retomada.
+
+Essa divisão abre caminho para computadores, celulares e microcontroladores ajudarem de acordo com seus recursos. O protocolo de blocos já existe para computadores; firmware ESP32 e aplicativo celular ainda não existem nesta etapa. Também não foram validados 72B/480B integrais, milhares de máquinas físicas ou uma pausa de um ano. O modo lento é via terminal e ainda não está ligado ao chat e aos créditos. Veja docs/MODO-LENTO.md para iniciar, interromper e continuar, e TEST_RESULTS.md para evidências reais.

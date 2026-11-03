@@ -33,7 +33,7 @@ def create_worker(directory,worker_id,secret,coordinator,url,verify=True,device=
     model_job=dict(state='idle');model_task=None;stage_cancel=threading.Event();transition=False;previous_directory=Path(json.loads(state_file.read_text()).get('previous',str(active_directory))) if state_file.exists() else active_directory
     sessions={}
     cache_budget=int(os.getenv('MESH_CACHE_MB','128'))*1048576
-    context_limit=min(shard.config.n_positions,4096 if shard.config.model_type=='qwen2' else 512)
+    context_limit=min(shard.config.n_positions,512 if shard.config.model_type=='gpt2' else 4096)
     mutex=threading.Lock()
     stop=threading.Event()
     report={'last_error':None}
@@ -51,6 +51,7 @@ def create_worker(directory,worker_id,secret,coordinator,url,verify=True,device=
         with mutex:
             cache_bytes=sum(t.numel()*t.element_size() for s in sessions.values() for kv in s['past'] for t in kv)
         result=dict(host_id=hashlib.sha256(socket.gethostname().encode()).hexdigest()[:24],weight_bytes=sum(p.numel()*p.element_size() for p in shard.parameters()),gpus=gpus,cpu_count=psutil.cpu_count(),cpu_percent=psutil.cpu_percent(),ram_total=psutil.virtual_memory().total,ram_available=psutil.virtual_memory().available,rss=psutil.Process().memory_info().rss,cache_bytes=cache_bytes,device=str(shard.device),parameters=sum(t.numel() for t in shard.parameters()),sessions=len(sessions))
+        if getattr(shard,'is_graph',False):result['operations']=len(shard.operations)
         if shard.device.type=='cuda':
             free,total=torch.cuda.mem_get_info(shard.device)
             properties=torch.cuda.get_device_properties(shard.device)
@@ -108,39 +109,50 @@ def create_worker(directory,worker_id,secret,coordinator,url,verify=True,device=
                 raise ValueError('Invalid session')
             if type(position) is not int or position<0:
                 raise ValueError('Invalid position')
-            value=unpack(message['tensor'],integer=shard.spec['first'])
-            if value.shape[0]!=1 or value.ndim!=(2 if shard.spec['first'] else 3):
+            graph=getattr(shard,'is_graph',False)
+            op=message.get('op')
+            operation=shard.operation(op) if graph else None
+            first=operation['kind']=='embedding' if graph else shard.spec['first']
+            width=shard.input_width(op) if graph else shard.config.n_embd
+            key=(sid,op) if graph else sid
+            stateless=graph and operation['kind']!='attention'
+            value=unpack(message['tensor'],integer=first)
+            if value.shape[0]!=1 or value.ndim!=(2 if first else 3):
                 raise ValueError('Invalid batch')
-            if not shard.spec['first'] and value.shape[2]!=shard.config.n_embd:
+            if not first and value.shape[2]!=width:
                 raise ValueError('Invalid hidden size')
-            if shard.spec['first'] and (value.min()<0 or value.max()>=shard.config.vocab_size):
+            if first and (value.min()<0 or value.max()>=shard.config.vocab_size):
                 raise ValueError('Invalid token')
             request_hash=hashlib.sha256(encode(message)).hexdigest()
             length=value.shape[1]
             if position+length>context_limit:
                 raise ValueError('Context limit exceeded')
             with mutex:
-                old=sessions.get(sid)
+                old=sessions.get(key)
                 if old and position==old.get('last_position'):
                     if request_hash!=old.get('request_hash'):raise HTTPException(409,'Repetição conflitante do passo')
                     old['updated']=time.monotonic()
                     return old['response']
-                if position!=(old['position'] if old else 0):
+                expected=old['position'] if old else 0
+                if position!=expected and not (stateless and position>expected):
                     raise HTTPException(409,'KV position mismatch; restart generation')
-                if old is None and len(sessions)>=8:
+                active={k[0] if isinstance(k,tuple) else k for k in sessions}
+                if old is None and sid not in active and len(active)>=8:
                     raise HTTPException(429,'Session capacity reached')
-                projected=shard.kv_bytes_per_token*length
+                projected=(shard.cache_rate(op) if graph else shard.kv_bytes_per_token)*length
                 current=sum(t.numel()*t.element_size() for session in sessions.values() for kv in session['past'] for t in kv)
                 if current+projected>cache_budget:
                     raise HTTPException(429,'KV memory budget exceeded')
                 started=time.perf_counter()
-                output,past=shard.step(value,None if old is None else old['past'],position)
+                if graph:
+                    output,past=shard.step_op(op,value,None if old is None else old['past'],position)
+                else:output,past=shard.step(value,None if old is None else old['past'],position)
                 if shard.device.type=='cuda':
                     torch.cuda.synchronize(shard.device)
                 elapsed=time.perf_counter()-started
                 result=dict(tensor=pack(output),seconds=elapsed,units=length*(shard.spec['end']-shard.spec['start']),position=position+length)
                 response=sign_result(identity,message,result) if identity else result
-                sessions[sid]=dict(past=past,position=position+length,updated=time.monotonic(),last_position=position,request_hash=request_hash,response=response)
+                sessions[key]=dict(past=past,position=position+length,updated=time.monotonic(),last_position=position,request_hash=request_hash,response=response)
             return response
         except (KeyError,ValueError,TypeError) as exc:
             raise HTTPException(422,str(exc))
@@ -149,7 +161,10 @@ def create_worker(directory,worker_id,secret,coordinator,url,verify=True,device=
     async def release(request:Request):
         message=await authenticate(request)
         with mutex:
-            sessions.pop(message.get('session'),None)
+            target=message.get('session')
+            for key in list(sessions):
+                if key==target or (isinstance(key,tuple) and key[0]==target):
+                    sessions.pop(key,None)
         return {'ok':True}
 
     @app.post('/model/stage')
@@ -202,7 +217,7 @@ def create_worker(directory,worker_id,secret,coordinator,url,verify=True,device=
                 raise
             shard=loaded;app.state.shard=shard;active_directory=Path(path)
             fingerprint=partition_fingerprint(path)
-            context_limit=min(shard.config.n_positions,4096 if shard.config.model_type=='qwen2' else 512)
+            context_limit=min(shard.config.n_positions,512 if shard.config.model_type=='gpt2' else 4096)
             atomic_json(state_file,dict(directory=str(active_directory),previous=str(previous_directory)))
             if gossip:gossip.directory.capability.update(spec=shard.spec,fingerprint=fingerprint)
 

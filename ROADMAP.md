@@ -1,5 +1,16 @@
 # Roadmap
 
+## Granularidade e continuidade
+
+- [x] Partições por operações internas e especialistas, orçamento em parâmetros e planejamento real acima de 400B.
+- [x] Pesos por linhas/colunas, cálculo em blocos e retomada durável de matrizes, KV e geração.
+- [x] Executor de blocos sem Torch, protocolo pequeno e alternância entre endpoints autorizados.
+- [ ] Adaptadores nativos de ESP32 e celular, validação em aparelhos reais e medição de RAM total/TLS.
+- [ ] Inferência integral de 72B/480B em hardware físico, recuperação distribuída em escala e avaliação de qualidade.
+- [ ] Histórico e controle de trabalhos lentos pelo navegador, integração dos microblocos aos créditos e descoberta/consenso públicos.
+
+Detalhes e comandos: docs/MODO-LENTO.md. Não confundir plano de milhares de participantes com teste de milhares de computadores conectados.
+
 ## Etapa 1 — implementada e validada localmente
 - Checkpoint real pequeno GPT-2, duas partições, dois processos worker.
 - Comparação numérica com modelo local e KV cache incremental.

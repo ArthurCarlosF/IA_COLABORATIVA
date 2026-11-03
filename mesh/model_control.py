@@ -78,11 +78,19 @@ class ModelControl:
                 if response['resources']['sessions']:raise ValueError('Worker com KV ativo')
                 reports[node['id']]=response['resources']
             budgets=self.budgets(reports);self.job['budgets']=budgets
-            plan=await asyncio.to_thread(plan_remote,profile,len(participants),[budgets[n['id']] for n in participants])
+            if profile in ('general-72b','coder-480b'):
+                from .graph_plan import plan_graph_remote
+                planner=plan_graph_remote
+            else:planner=plan_remote
+            plan=await asyncio.to_thread(planner,profile,len(participants),[budgets[n['id']] for n in participants])
             self.job.update(state='preparing',assignments=[dict(worker=n['id'],spec=b['spec'],weight_bytes=validate_bundle(b)) for n,b in zip(participants,plan['bundles'])])
             new_root=self.catalog/digest(dict(model=plan['model'],revision=plan['revision'],parts=plan['parts']));new_root.mkdir(exist_ok=True)
             atomic_json(new_root/'manifest.json',plan);atomic_json(new_root/'config.json',plan['config'])
-            tokenizer=await asyncio.to_thread(AutoTokenizer.from_pretrained,plan['model'],revision=plan['revision'],trust_remote_code=False)
+            tokenizer_class=AutoTokenizer
+            if plan.get('architecture')=='qwen3_moe':
+                from transformers import Qwen2TokenizerFast
+                tokenizer_class=Qwen2TokenizerFast
+            tokenizer=await asyncio.to_thread(tokenizer_class.from_pretrained,plan['model'],revision=plan['revision'],trust_remote_code=False)
             tokenizer.save_pretrained(new_root/'tokenizer')
             for node,bundle in zip(participants,plan['bundles']):await self.call(node,'/model/stage',dict(bundle=bundle))
             deadline=time.monotonic()+1800

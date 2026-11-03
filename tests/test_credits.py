@@ -59,6 +59,19 @@ def test_rounding_multiple_workers_same_owner(setup):
     assert w.snapshot('bob')['partition_tokens_processed']==6
     assert w.audit()['valid']
 
+def test_graph_operations_credit_only_actual_units_without_multiplying_again(setup):
+    wallet,_,_=setup
+    wallet.reserve('graph','requester',5,1)
+    wallet.settle('graph',0,6,[
+        dict(id='a',owner='alice',layers=1,input_tokens=5,work_units=15),
+        dict(id='b',owner='bob',layers=1,input_tokens=2,work_units=5)])
+    wallet.release('graph')
+    a,b=wallet.snapshot('alice'),wallet.snapshot('bob')
+    assert a['extra_remaining']==4.5 and b['extra_remaining']==1.5
+    assert a['partition_tokens_processed']==5 and b['partition_tokens_processed']==2
+    assert a['contributed_layer_tokens']==15 and b['contributed_layer_tokens']==5
+    assert wallet.audit()['valid']
+
 def test_daily_then_extra_and_refund(setup):
     w,_,_=setup
     w.reserve('a','alice',1,4)
